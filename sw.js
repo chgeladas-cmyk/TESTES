@@ -1,7 +1,7 @@
 // CH Geladas PDV — Service Worker v4
 // Cache estratégico: App Shell + Network-first para dados
 
-const CACHE_VERSION = 'ch-geladas-v28';
+const CACHE_VERSION = 'ch-geladas-v29';
 const STATIC_CACHE  = `${CACHE_VERSION}-static`;
 const API_CACHE     = `${CACHE_VERSION}-api`;
 
@@ -21,6 +21,8 @@ const APP_SHELL = [
   './manifest.json',
   './core.js',
   // Services
+  './services/permissoesService.js',
+  './services/aprovacaoService.js',
   './services/syncService.js',
   './services/auditService.js',
   './services/syncMonitor.js',
@@ -29,6 +31,8 @@ const APP_SHELL = [
   './services/vendasService.js',
   './services/financeiroService.js',
   './services/userService.js',
+  // Pages
+  './aprovacao.html',
   // Icons
   './icon-72.png',
   './icon-96.png',
