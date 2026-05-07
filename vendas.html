@@ -792,10 +792,25 @@ function confirmarFiado(clienteId) {
 function _verificarAprovacao() {
   try {
     const role = window.CH?.AuthService?.getRole?.() || '';
-    if (['adm','admin','gerente','operador','pdv','entregador'].includes(role)) return false;
+
+    // Roles que NUNCA precisam de aprovação
+    const LIVRES = ['adm','admin','gerente','operador','pdv','entregador'];
+    if (LIVRES.includes(role)) return false;
+
+    // Tenta PermissoesService (configuração do ADM)
     const Perm = window.CH?.PermissoesService;
-    if (Perm) return Perm.getFlag(role, 'vendas_requer_aprovacao');
-    return true; // seguro por padrão
+    if (Perm) {
+      const p = Perm.getPerfil(role);
+      // Se o perfil existe e tem a flag EXPLICITAMENTE definida, usa ela
+      if (p && p.flags && typeof p.flags.vendas_requer_aprovacao === 'boolean') {
+        return p.flags.vendas_requer_aprovacao;
+      }
+    }
+
+    // Fallback conservador: qualquer role fora da lista livre requer aprovação
+    // Isso garante que colaborador/controlador/analista/validador
+    // e qualquer perfil personalizado sempre requeiram aprovação
+    return true;
   } catch(e) { return true; }
 }
 
