@@ -180,7 +180,20 @@
   function getFlag(roleId, flagId) {
     if (['adm', 'admin'].includes(roleId)) return false;
     const p = getPerfil(roleId);
-    return p?.flags?.[flagId] ?? false;
+    if (!p) return false;
+
+    // Se flags existe e tem o campo explícito → usa
+    if (p.flags && typeof p.flags[flagId] === 'boolean') {
+      return p.flags[flagId];
+    }
+
+    // Fallback: se flag não está definida, usa valor padrão do PERFIS_PADRAO
+    const padrao = PERFIS_PADRAO[roleId];
+    if (padrao?.flags && typeof padrao.flags[flagId] === 'boolean') {
+      return padrao.flags[flagId];
+    }
+
+    return false;
   }
 
   // ── CRUD de perfis ────────────────────────────────────────────────
