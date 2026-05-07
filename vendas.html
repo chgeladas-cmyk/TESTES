@@ -848,8 +848,6 @@ function finalizarVenda(forma, troco = 0, parcelaDinheiro = 0, formaRestante = '
   if (result && typeof result.then === 'function') { result.then(_done); } else { _done(result); }
 }
 
-}
-
 /* ══ CANCELAR VENDA ══ */
 function cancelarUltimaVenda() {
   if (!_ultimaVenda) return;
