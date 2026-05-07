@@ -951,7 +951,7 @@ const AuthService = {
   }, 2000);
   setTimeout(() => Store.hydrateAsync(), 3000);
 
-  EventBus.emit('auth:login', { role });
+  EventBus.emit('auth:login', { role: session.role });
   return true;
   },
 
