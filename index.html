@@ -810,7 +810,7 @@ async function doLogin() {
   }
 }
 
-document.getElementById('pinInput').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+document.getElementById('pinInput').addEventListener('keyup', e => { if (e.key === 'Enter') { e.preventDefault(); doLogin(); } });
 
 function doLogout() {
   if (!confirm('Encerrar sessão?')) return;
