@@ -146,9 +146,11 @@ body { font-family:'DM Sans',sans-serif; background:var(--bg); color:#e2e8f0; mi
 <script>
 const { AuthService, Utils, EventBus, Store } = window.CH;
 
-let _tabAtual   = 'pendentes';
+let _tabAtual    = 'pendentes';
 let _vendaRejeitar = null;
 let _role = '';
+let _temControle  = false;
+let _temValidacao = false;
 
 // ── AUTH GUARD ────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
@@ -165,8 +167,8 @@ window.addEventListener('DOMContentLoaded', () => {
   // Verifica se tem qualquer permissão de aprovação via PermissoesService
   const isAdm = ['adm','admin'].includes(_role);
   const Perm  = window.CH.PermissoesService;
-  const _temControle  = isAdm || (Perm && Perm.temAcesso(_role, 'aprovacao_controle'));
-  const _temValidacao = isAdm || (Perm && Perm.temAcesso(_role, 'aprovacao_validacao'));
+  _temControle  = isAdm || (Perm && Perm.temAcesso(_role, 'aprovacao_controle'));
+  _temValidacao = isAdm || (Perm && Perm.temAcesso(_role, 'aprovacao_validacao'));
 
   if (!_temControle && !_temValidacao) {
     document.getElementById('lista').innerHTML = `
