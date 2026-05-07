@@ -61,10 +61,42 @@ const CONSTANTS = Object.freeze({
     ler:      ['estoque','vendas','comandas','fiado','ponto','pedidos','config','auditoria','movimentacoes','categorias','fornecedores','financeiro'],
     escrever: ['estoque','vendas','comandas','fiado','ponto','pedidos','config','auditoria','movimentacoes','categorias','fornecedores','financeiro'],
   }),
+  adm: Object.freeze({
+    ler:      ['estoque','vendas','comandas','fiado','ponto','pedidos','config','auditoria','movimentacoes','categorias','fornecedores','financeiro'],
+    escrever: ['estoque','vendas','comandas','fiado','ponto','pedidos','config','auditoria','movimentacoes','categorias','fornecedores','financeiro'],
+  }),
+  colaborador: Object.freeze({
+    ler:      ['vendas'],
+    escrever: ['vendas'],
+  }),
+  controlador: Object.freeze({
+    ler:      ['vendas','aprovacao'],
+    escrever: ['aprovacao'],
+  }),
+  validador: Object.freeze({
+    ler:      ['vendas','estoque','financeiro','aprovacao'],
+    escrever: ['aprovacao'],
+  }),
+  analista: Object.freeze({
+    ler:      ['vendas','estoque','financeiro','aprovacao'],
+    escrever: ['aprovacao'],
+  }),
+  gerente: Object.freeze({
+    ler:      ['estoque','vendas','comandas','fiado','ponto','financeiro'],
+    escrever: ['estoque','vendas','comandas','fiado','ponto','financeiro'],
+  }),
+  operador: Object.freeze({
+    ler:      ['estoque','vendas','comandas'],
+    escrever: ['vendas','comandas'],
+  }),
+  entregador: Object.freeze({
+    ler:      ['pedidos'],
+    escrever: ['pedidos'],
+  }),
   }),
 
   TIPOS_MOVIMENTACAO: Object.freeze(['entrada','venda','avaria','ajuste','transferencia','cancelamento','inventario']),
-  ROLES:              Object.freeze(['admin','gerente','operador','entregador','pdv']),
+  ROLES:              Object.freeze(['admin','adm','gerente','operador','entregador','pdv','colaborador','controlador','validador','analista']),
 });
 
 const Utils = Object.freeze({
@@ -858,7 +890,7 @@ const AuthService = {
   return this._session;
   },
 
-  isLogged() { return !!(this._load()?.role); },
+  isLogged() { const s = this._load(); return !!(s && s.role); },
   isAdmin()  { const r = this._load()?.role; return r === 'admin' || r === 'adm'; },
   getRole()  { return this._load()?.role || null; },
   getNome()  { return this._load()?.nome || 'Colaborador'; },
