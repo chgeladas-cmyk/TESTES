@@ -295,7 +295,7 @@ function setPeriodo(per, btn) {
    FILTRAR VENDAS POR PERÍODO
 ═══════════════════════════════════ */
 function filtrarVendas() {
-  const todas  = Store.getVendas();
+  const todas  = Store.getVendas().filter(v => ['concluida','validada'].includes(v.status || 'concluida'));
   const agora  = new Date();
   const hoje   = Utils.todayISO();
 
@@ -341,7 +341,7 @@ function renderTudo() {
 
   // Investimento e ROI
   const invest  = Store.getInvestimento();
-  const lucroAcum = Store.getVendas().reduce((s,v) => s+(v.lucro||0), 0);
+  const lucroAcum = Store.getVendas().filter(v => ['concluida','validada'].includes(v.status || 'concluida')).reduce((s,v) => s+(v.lucro||0), 0);
   const roi     = invest > 0 ? ((lucroAcum/invest)*100).toFixed(1) + '%' : '—';
 
   // Label do período
@@ -786,7 +786,7 @@ window.addEventListener('DOMContentLoaded', () => {
 /* ══ RELATÓRIO DIÁRIO DETALHADO ══ */
 function abrirRelDiario() {
   const hoje    = Utils.todayISO();
-  const vendas  = (Store.getVendas() || []).filter(v => (v.dataCurta || v.data || '') === hoje);
+  const vendas  = (Store.getVendas() || []).filter(v => (v.dataCurta || v.data || '') === hoje && ['concluida','validada'].includes(v.status || 'concluida'));
   const lancamentos = window.CH.FinanceiroService
     ? window.CH.FinanceiroService.getLancamentos({ dataDe: hoje, dataAte: hoje })
     : [];
@@ -884,7 +884,7 @@ function abrirRelDiario() {
         <div class="flex items-center justify-between mb-1">
           <div class="flex items-center gap-2">
             <span class="text-[9px] text-slate-500 font-bold">${v.hora || '—'}</span>
-            <span class="text-[9px] font-black ${v.status==='cancelada'?'text-red-400':'text-emerald-400'}">${v.status === 'cancelada' ? '✗ Cancelada' : '✓ Concluída'}</span>
+            <span class="text-[9px] font-black ${v.status==='cancelada'?'text-red-400':v.status==='pendente'?'text-yellow-400':v.status==='aprovada'?'text-blue-400':'text-emerald-400'}">${v.status==='cancelada'?'✗ Cancelada':v.status==='pendente'?'⏳ Pendente':v.status==='aprovada'?'✓ Aprovada':'✓ Concluída'}</span>
           </div>
           <div class="text-right">
             <p class="text-sm font-black text-white">${Utils.formatCurrency(v.total)}</p>
@@ -909,7 +909,7 @@ function abrirRelDiario() {
 
 function baixarRelDiario() {
   const hoje   = Utils.todayISO();
-  const vendas = (Store.getVendas() || []).filter(v => (v.dataCurta || v.data || '') === hoje);
+  const vendas = (Store.getVendas() || []).filter(v => (v.dataCurta || v.data || '') === hoje && ['concluida','validada'].includes(v.status || 'concluida'));
   const fatur  = vendas.reduce((s,v) => s + (v.total||0), 0);
   const lucro  = vendas.reduce((s,v) => s + (v.lucro||0), 0);
   let txt = `RELATÓRIO DIÁRIO — ${hoje}\n`;
