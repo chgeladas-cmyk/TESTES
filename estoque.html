@@ -383,7 +383,20 @@ function baixarRelatorio(){Utils.downloadBlob(_gerarTextoRelatorio(),'text/plain
 
 function _setText(id,val){const el=document.getElementById(id);if(el)el.textContent=val;}
 
-window.addEventListener('DOMContentLoaded',()=>{if(AuthService.isLogged()){document.getElementById('lock').classList.add('hidden');document.getElementById('app').classList.remove('hidden');if(AuthService.isAdmin())document.body.classList.add('is-admin');const rt=document.getElementById('roleTag');if(rt){rt.textContent=AuthService.isAdmin()?'ADM':'PDV';rt.classList.remove('hidden');}init();}});
+window.addEventListener('DOMContentLoaded', () => {
+  if (!AuthService.isLogged()) { location.href = 'index.html'; return; }
+  document.getElementById('lock').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  const _role = AuthService.getRole();
+  if (AuthService.isAdmin()) document.body.classList.add('is-admin');
+  const rt = document.getElementById('roleTag');
+  if (rt) {
+    const _info = window.CH?.PermissoesService?.getPerfil?.(_role);
+    rt.textContent = _info?.label || _role || 'PDV';
+    rt.classList.remove('hidden');
+  }
+  init();
+});
 </script>
 </body>
 </html>
