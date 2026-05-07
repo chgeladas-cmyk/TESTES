@@ -432,9 +432,14 @@ async function doLogin() {
   if (ok) {
     document.getElementById('lock').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
+    const _r = AuthService.getRole();
     if (AuthService.isAdmin()) document.body.classList.add('is-admin');
     const rt = document.getElementById('roleTag');
-    if (rt) { rt.textContent = AuthService.isAdmin() ? 'ADM' : 'PDV'; rt.classList.remove('hidden'); }
+    if (rt) {
+      const _pi = window.CH?.PermissoesService?.getPerfil?.(_r);
+      rt.textContent = _pi?.label || _r || 'PDV';
+      rt.classList.remove('hidden');
+    }
     init();
   } else {
     err.textContent = 'PIN incorreto.';
@@ -1060,9 +1065,14 @@ window.addEventListener('DOMContentLoaded', () => {
   if (AuthService.isLogged()) {
     document.getElementById('lock').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
+    const _role = AuthService.getRole();
     if (AuthService.isAdmin()) document.body.classList.add('is-admin');
     const rt = document.getElementById('roleTag');
-    if (rt) { rt.textContent = AuthService.isAdmin()?'ADM':'PDV'; rt.classList.remove('hidden'); }
+    if (rt) {
+      const _info = window.CH?.PermissoesService?.getPerfil?.(_role);
+      rt.textContent = _info?.label || _role || 'PDV';
+      rt.classList.remove('hidden');
+    }
     init();
   }
 });

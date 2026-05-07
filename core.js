@@ -859,7 +859,7 @@ const AuthService = {
   },
 
   isLogged() { return !!(this._load()?.role); },
-  isAdmin()  { return this._load()?.role === 'admin'; },
+  isAdmin()  { const r = this._load()?.role; return r === 'admin' || r === 'adm'; },
   getRole()  { return this._load()?.role || null; },
   getNome()  { return this._load()?.nome || 'Colaborador'; },
   getUID()   { return FirebaseService.getUID(); },
@@ -874,12 +874,28 @@ const AuthService = {
   },
 
   async login(pin) {
-  const role = await CryptoService.validatePin(pin);
-  if (!role) return false;
-  const session = { role, nome: role === 'admin' ? 'Administrador' : 'Colaborador', loginAt: Date.now() };
+  // 1. Tenta UserService (usuários criados pelo ADM)
+  let session = null;
+  if (window.CH?.UserService) {
+    try {
+      const user = await window.CH.UserService.validarPin(pin);
+      if (user && user.id !== 'legacy') {
+        session = { role: user.role, nome: user.nome, userId: user.id, loginAt: Date.now() };
+      }
+    } catch(e) { console.warn('[AuthService.login] UserService erro:', e); }
+  }
+
+  // 2. Fallback: PINs legados (admin/001, pdv/123)
+  if (!session) {
+    const role = await CryptoService.validatePin(pin);
+    if (!role) return false;
+    session = { role, nome: role === 'admin' ? 'Administrador' : 'PDV', loginAt: Date.now() };
+  }
+
   sessionStorage.setItem(CONSTANTS.SESSION_KEY, JSON.stringify(session));
   this._session = session;
-  if (role === 'admin') {
+  const isAdm = ['adm','admin'].includes(session.role);
+  if (isAdm) {
     await FirebaseService.init();
     await FirebaseService.gerarAdminToken(String(pin).trim());
   } else {
