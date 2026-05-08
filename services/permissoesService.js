@@ -1,33 +1,44 @@
 'use strict';
 /**
  * services/permissoesService.js — CH Geladas PDV
- * Perfis e permissões salvos no Firebase Firestore (ch_perfis)
- * + cache local no localStorage.
- * Nunca se perdem ao limpar histórico do browser.
+ * ─────────────────────────────────────────────────────────────
+ * Permissões dinâmicas por perfil — configuradas pelo ADM.
+ *
+ * Cada perfil define por módulo:
+ *   0 = Sem acesso (oculto no Hub)
+ *   1 = Leitura    (visualiza, não edita)
+ *   2 = Completo   (acesso total)
+ *
+ * Flags especiais:
+ *   vendas_requer_aprovacao → vendas desse perfil entram como "pendente"
+ *
+ * Armazenamento: localStorage CH_PERFIS (sincronizável via Firebase)
  */
 
 (function () {
   const STORAGE_KEY = 'CH_PERFIS';
-  const FB_DOC      = 'ch_perfis';
 
+  // ── Lista de módulos configuráveis ────────────────────────────────
   const MODULOS = [
-    { id: 'vendas',              label: 'Vendas (PDV)',           icone: '🛒', cor: '#3b82f6' },
-    { id: 'estoque',             label: 'Estoque',                icone: '📦', cor: '#10b981' },
-    { id: 'financeiro',          label: 'Financeiro',             icone: '📊', cor: '#8b5cf6' },
-    { id: 'fiado',               label: 'Fiado',                  icone: '🤝', cor: '#ef4444' },
-    { id: 'comandas',            label: 'Comandas',               icone: '🍽️', cor: '#ec4899' },
-    { id: 'delivery',            label: 'Delivery',               icone: '🛵', cor: '#f97316' },
-    { id: 'ponto',               label: 'Ponto',                  icone: '⏱️', cor: '#14b8a6' },
-    { id: 'cardapio',            label: 'Cardápio Digital',       icone: '📋', cor: '#f97316' },
-    { id: 'aprovacao_controle',  label: 'Aprovação — Controle',  icone: '🔍', cor: '#f59e0b' },
-    { id: 'aprovacao_validacao', label: 'Aprovação — Validação', icone: '✅', cor: '#8b5cf6' },
-    { id: 'relatorios',          label: 'Relatórios',             icone: '📈', cor: '#64748b' },
+    { id: 'vendas',              label: 'Vendas (PDV)',          icone: '🛒', cor: '#3b82f6' },
+    { id: 'estoque',             label: 'Estoque',               icone: '📦', cor: '#10b981' },
+    { id: 'financeiro',          label: 'Financeiro',            icone: '📊', cor: '#8b5cf6' },
+    { id: 'fiado',               label: 'Fiado',                 icone: '🤝', cor: '#ef4444' },
+    { id: 'comandas',            label: 'Comandas',              icone: '🍽️', cor: '#ec4899' },
+    { id: 'delivery',            label: 'Delivery',              icone: '🛵', cor: '#f97316' },
+    { id: 'ponto',               label: 'Ponto',                 icone: '⏱️', cor: '#14b8a6' },
+    { id: 'cardapio',            label: 'Cardápio Digital',      icone: '📋', cor: '#f97316' },
+    { id: 'aprovacao_controle',  label: 'Aprovação — Controle', icone: '🔍', cor: '#f59e0b' },
+    { id: 'aprovacao_validacao', label: 'Aprovação — Validação',icone: '✅', cor: '#8b5cf6' },
+    { id: 'relatorios',          label: 'Relatórios',            icone: '📈', cor: '#64748b' },
   ];
 
+  // ── Flags especiais por perfil ────────────────────────────────────
   const FLAGS = [
-    { id: 'vendas_requer_aprovacao', label: 'Vendas entram como Pendente (requerem aprovação)' },
+    { id: 'vendas_requer_aprovacao', label: 'Vendas entram como Pendente (requerem aprovação do Controlador)' },
   ];
 
+  // ── Perfis padrão (carregados se CH_PERFIS não existir) ───────────
   const PERFIS_PADRAO = {
     colaborador: {
       label: 'Colaborador', cor: '#3b82f6', icone: '🛒',
@@ -41,11 +52,6 @@
     },
     validador: {
       label: 'Validador', cor: '#8b5cf6', icone: '✅',
-      modulos: { vendas:1, estoque:1, financeiro:1, fiado:0, comandas:0, delivery:0, ponto:1, cardapio:0, aprovacao_controle:0, aprovacao_validacao:2, relatorios:1 },
-      flags: { vendas_requer_aprovacao: false },
-    },
-    analista: {
-      label: 'Analista', cor: '#8b5cf6', icone: '📋',
       modulos: { vendas:1, estoque:1, financeiro:1, fiado:0, comandas:0, delivery:0, ponto:1, cardapio:0, aprovacao_controle:0, aprovacao_validacao:2, relatorios:1 },
       flags: { vendas_requer_aprovacao: false },
     },
@@ -66,63 +72,44 @@
     },
   };
 
+  // ── ADM: sempre acesso total (não editável) ───────────────────────
   const ADM_MODULOS = {};
   MODULOS.forEach(m => { ADM_MODULOS[m.id] = 2; });
 
-  // ── localStorage ─────────────────────────────────────────────────
+  // ── Persistência ──────────────────────────────────────────────────
   function _load() {
-    try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : null; } catch { return null; }
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
   }
+
   function _save(perfis) {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(perfis)); } catch(e) {}
   }
 
-  // ── Firebase ──────────────────────────────────────────────────────
-  async function _saveFirebase(perfis) {
-    try {
-      const FS = window.CH.FirebaseService;
-      if (!FS || !FS.isReady?.()) return;
-      await FS.salvar(FB_DOC, perfis);
-    } catch(e) { console.warn('[PermissoesService] Firebase salvar falhou:', e.message); }
-  }
+  function _inicializar() {
+    const existing = _load();
 
-  async function _loadFirebase() {
-    try {
-      const FS = window.CH.FirebaseService;
-      if (!FS || !FS.isReady?.()) return null;
-      const data = await FS.ler(FB_DOC);
-      return (data && typeof data === 'object' && !Array.isArray(data)) ? data : null;
-    } catch(e) { console.warn('[PermissoesService] Firebase ler falhou:', e.message); return null; }
-  }
-
-  // ── Inicialização com migração ────────────────────────────────────
-  async function inicializar() {
-    const local = _load();
-
-    // Se não tem local, tenta Firebase primeiro
-    if (!local) {
-      const remoto = await _loadFirebase();
-      if (remoto && Object.keys(remoto).length > 0) {
-        _save(remoto);
-        console.info('[PermissoesService] Perfis restaurados do Firebase.');
-        return;
-      }
-      // Sem remoto: grava padrões
-      const padrao = JSON.parse(JSON.stringify(PERFIS_PADRAO));
-      _save(padrao);
-      await _saveFirebase(padrao);
+    // Nenhum dado ainda: grava os padrões
+    if (!existing) {
+      _save(JSON.parse(JSON.stringify(PERFIS_PADRAO)));
       return;
     }
 
-    // Tem local: migra campos ausentes
+    // Dados existem: migra campos ausentes (flags, modulos novos)
+    // Isso garante que deploys anteriores sem "flags" sejam corrigidos
     let changed = false;
-    const merged = { ...local };
+    const merged = { ...existing };
+
     Object.entries(PERFIS_PADRAO).forEach(([id, padrao]) => {
+      // Perfil padrão ausente na store → adiciona
       if (!merged[id]) {
         merged[id] = JSON.parse(JSON.stringify(padrao));
         changed = true;
         return;
       }
+      // Flags ausentes → copia do padrão
       if (!merged[id].flags) {
         merged[id].flags = JSON.parse(JSON.stringify(padrao.flags));
         changed = true;
@@ -134,6 +121,7 @@
           }
         });
       }
+      // Módulos novos ausentes → adiciona com 0
       MODULOS.forEach(m => {
         if (merged[id].modulos && merged[id].modulos[m.id] === undefined) {
           merged[id].modulos[m.id] = padrao.modulos?.[m.id] ?? 0;
@@ -144,115 +132,133 @@
 
     if (changed) {
       _save(merged);
-      await _saveFirebase(merged);
-      console.info('[PermissoesService] Migração aplicada e sincronizada.');
+      console.info('[PermissoesService] Migração de perfis aplicada.');
     }
   }
 
   // ── Leitura ───────────────────────────────────────────────────────
-  function _getData() {
-    return _load() || JSON.parse(JSON.stringify(PERFIS_PADRAO));
-  }
 
+  /** Retorna todos os perfis como array [{id, label, cor, icone, modulos, flags}] */
   function getPerfis() {
-    return Object.entries(_getData()).map(([id, p]) => ({ id, ...p }));
+    _inicializar();
+    const raw = _load();
+    return Object.entries(raw).map(([id, p]) => ({ id, ...p }));
   }
 
+  /** Retorna um perfil pelo id */
   function getPerfil(roleId) {
-    if (['adm','admin'].includes(roleId)) {
+    if (['adm', 'admin'].includes(roleId)) {
       return { id: roleId, label: 'Administrador', cor: '#ef4444', icone: '👑', modulos: ADM_MODULOS, flags: {} };
     }
-    const raw = _getData();
+    _inicializar();
+    const raw = _load();
     return raw[roleId] ? { id: roleId, ...raw[roleId] } : null;
   }
 
+  /**
+   * Nível de acesso de um perfil a um módulo.
+   * @returns {number} 0 = sem acesso | 1 = leitura | 2 = completo
+   */
   function nivelAcesso(roleId, moduloId) {
-    if (['adm','admin'].includes(roleId)) return 2;
+    if (['adm', 'admin'].includes(roleId)) return 2;
     const p = getPerfil(roleId);
-    return p?.modulos?.[moduloId] ?? 0;
+    if (!p) return 0;
+    return p.modulos?.[moduloId] ?? 0;
   }
 
-  function temAcesso(roleId, moduloId) { return nivelAcesso(roleId, moduloId) >= 1; }
-  function temAcessoCompleto(roleId, moduloId) { return nivelAcesso(roleId, moduloId) === 2; }
+  /** Atalho: tem qualquer acesso (>= 1) */
+  function temAcesso(roleId, moduloId) {
+    return nivelAcesso(roleId, moduloId) >= 1;
+  }
 
+  /** Atalho: acesso completo (== 2) */
+  function temAcessoCompleto(roleId, moduloId) {
+    return nivelAcesso(roleId, moduloId) === 2;
+  }
+
+  /** Retorna valor de uma flag do perfil */
   function getFlag(roleId, flagId) {
-    if (['adm','admin'].includes(roleId)) return false;
+    if (['adm', 'admin'].includes(roleId)) return false;
     const p = getPerfil(roleId);
     if (!p) return false;
-    // Flag explícita no perfil salvo
-    if (p.flags && typeof p.flags[flagId] === 'boolean') return p.flags[flagId];
-    // Fallback para o padrão do código
+
+    // Se flags existe e tem o campo explícito → usa
+    if (p.flags && typeof p.flags[flagId] === 'boolean') {
+      return p.flags[flagId];
+    }
+
+    // Fallback: se flag não está definida, usa valor padrão do PERFIS_PADRAO
     const padrao = PERFIS_PADRAO[roleId];
-    if (padrao?.flags && typeof padrao.flags[flagId] === 'boolean') return padrao.flags[flagId];
+    if (padrao?.flags && typeof padrao.flags[flagId] === 'boolean') {
+      return padrao.flags[flagId];
+    }
+
     return false;
   }
 
   // ── CRUD de perfis ────────────────────────────────────────────────
-  async function criarPerfil({ id, label, cor, icone, modulos, flags }) {
+
+  /** Cria um novo perfil personalizado */
+  function criarPerfil({ id, label, cor, icone, modulos, flags }) {
     if (!id || !label) throw new Error('id e label são obrigatórios');
     if (['adm','admin'].includes(id)) throw new Error('id reservado');
-    const raw = _getData();
+    _inicializar();
+    const raw = _load();
     if (raw[id]) throw new Error(`Perfil "${id}" já existe`);
+
     const modulosCompletos = {};
     MODULOS.forEach(m => { modulosCompletos[m.id] = modulos?.[m.id] ?? 0; });
     const flagsCompletas = {};
     FLAGS.forEach(f => { flagsCompletas[f.id] = flags?.[f.id] ?? false; });
+
     raw[id] = { label: label.trim(), cor: cor || '#64748b', icone: icone || '👤', modulos: modulosCompletos, flags: flagsCompletas };
     _save(raw);
-    await _saveFirebase(raw);
     return { id, ...raw[id] };
   }
 
-  async function atualizarPerfil(id, dados) {
+  /** Atualiza um perfil existente */
+  function atualizarPerfil(id, dados) {
     if (['adm','admin'].includes(id)) throw new Error('Perfil ADM não pode ser editado');
-    const raw = _getData();
+    _inicializar();
+    const raw = _load();
     if (!raw[id]) throw new Error(`Perfil "${id}" não encontrado`);
     Object.assign(raw[id], dados);
     _save(raw);
-    await _saveFirebase(raw);
     return { id, ...raw[id] };
   }
 
-  async function deletarPerfil(id) {
+  /** Remove um perfil (não pode remover se houver usuários ativos com ele) */
+  function deletarPerfil(id) {
     if (['adm','admin'].includes(id)) throw new Error('Perfil ADM não pode ser removido');
-    const raw = _getData();
+    _inicializar();
+    const raw = _load();
     if (!raw[id]) throw new Error(`Perfil "${id}" não encontrado`);
     delete raw[id];
     _save(raw);
-    await _saveFirebase(raw);
     return true;
   }
 
-  async function restaurarPadroes() {
-    const padrao = JSON.parse(JSON.stringify(PERFIS_PADRAO));
-    _save(padrao);
-    await _saveFirebase(padrao);
+  /** Restaura os perfis padrão */
+  function restaurarPadroes() {
+    _save(JSON.parse(JSON.stringify(PERFIS_PADRAO)));
     return true;
   }
 
+  // ── Exportar ──────────────────────────────────────────────────────
   window.CH.PermissoesService = {
-    MODULOS, FLAGS,
-    inicializar,
-    getPerfis, getPerfil,
-    nivelAcesso, temAcesso, temAcessoCompleto, getFlag,
-    criarPerfil, atualizarPerfil, deletarPerfil, restaurarPadroes,
+    MODULOS,
+    FLAGS,
+    getPerfis,
+    getPerfil,
+    nivelAcesso,
+    temAcesso,
+    temAcessoCompleto,
+    getFlag,
+    criarPerfil,
+    atualizarPerfil,
+    deletarPerfil,
+    restaurarPadroes,
   };
 
-  // Auto-inicializa com retry até Firebase estar pronto
-  async function _autoInicializar() {
-    const FS = window.CH.FirebaseService;
-    if (FS && FS.isReady && FS.isReady()) {
-      await inicializar();
-      return;
-    }
-    setTimeout(_autoInicializar, 500);
-  }
-
-  window.CH.EventBus?.on('firebase:ready', () => {
-    setTimeout(inicializar, 300);
-  });
-
-  setTimeout(_autoInicializar, 600);
-
-  console.info('%c PermissoesService ✓  (Firebase + localStorage)', 'color:#f59e0b;font-weight:bold');
+  console.info('%c PermissoesService ✓  (perfis dinâmicos por módulo)', 'color:#f59e0b');
 })();

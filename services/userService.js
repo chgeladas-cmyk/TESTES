@@ -172,10 +172,8 @@
 
     const isFullAdmin = ['adm','admin'].includes(user.role);
     if (isFullAdmin) {
-      // gerarAdminToken é só crypto local — não precisa de rede
+      await window.CH.FirebaseService.init();
       await window.CH.FirebaseService.gerarAdminToken(String(pin).trim());
-      // Firebase init dispara em background — não bloqueia o login
-      window.CH.FirebaseService.init().catch(e => console.warn('[UserService] Firebase init bg:', e));
     } else {
       window.CH.FirebaseService.clearAdminToken();
     }
