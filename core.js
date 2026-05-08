@@ -907,15 +907,9 @@ const AuthService = {
 
   async login(pin) {
   // 1. Tenta UserService (usuários criados pelo ADM)
-  // Se Firebase ainda não carregou os usuários, força sincronização antes de validar
   let session = null;
   if (window.CH?.UserService) {
     try {
-      // Garante que usuários do Firebase foram carregados
-      const FS = window.CH.FirebaseService;
-      if (FS && FS.isReady && FS.isReady()) {
-        await window.CH.UserService.inicializar();
-      }
       const user = await window.CH.UserService.validarPin(pin);
       if (user && user.id !== 'legacy') {
         session = { role: user.role, nome: user.nome, userId: user.id, loginAt: Date.now() };
@@ -934,8 +928,10 @@ const AuthService = {
   this._session = session;
   const isAdm = ['adm','admin'].includes(session.role);
   if (isAdm) {
-    await FirebaseService.init();
+    // gerarAdminToken é só crypto local — não precisa de rede
     await FirebaseService.gerarAdminToken(String(pin).trim());
+    // Firebase init dispara em background — não bloqueia o login
+    FirebaseService.init().catch(e => console.warn('[AuthService] Firebase init bg:', e));
   } else {
     FirebaseService.clearAdminToken();
   }
