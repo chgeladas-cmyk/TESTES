@@ -928,10 +928,8 @@ const AuthService = {
   this._session = session;
   const isAdm = ['adm','admin'].includes(session.role);
   if (isAdm) {
-    // gerarAdminToken é só crypto local — não precisa de rede
+    await FirebaseService.init();
     await FirebaseService.gerarAdminToken(String(pin).trim());
-    // Firebase init dispara em background — não bloqueia o login
-    FirebaseService.init().catch(e => console.warn('[AuthService] Firebase init bg:', e));
   } else {
     FirebaseService.clearAdminToken();
   }

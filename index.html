@@ -784,17 +784,11 @@ async function doLogin() {
 
   // Usa UserService (multi-usuário) quando disponível, fallback para AuthService (legado)
   let ok = false;
-  try {
-    if (window.CH?.UserService) {
-      const user = await window.CH.UserService.login(pin);
-      ok = !!user;
-    } else {
-      ok = await AuthService.login(pin);
-    }
-  } catch(e) {
-    console.error('[doLogin] Erro inesperado:', e);
-    err.textContent = 'Erro interno. Recarregue a página.';
-    return;
+  if (window.CH?.UserService) {
+    const user = await window.CH.UserService.login(pin);
+    ok = !!user;
+  } else {
+    ok = await AuthService.login(pin);
   }
 
   if (ok) {
