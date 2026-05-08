@@ -592,9 +592,9 @@ const FirebaseService = (() => {
   const role = AuthService.getRole();
   if (!role || !_db || !_fb) return;
 
-  const colsRT = role === 'admin'
-    ? ['estoque', 'config', 'fiado', 'comandas', 'pedidos']
-    : ['estoque', 'config'];
+  const colsRT = (role === 'admin' || role === 'adm')
+    ? ['estoque', 'config', 'fiado', 'comandas', 'pedidos', 'usuarios']
+    : ['estoque', 'config', 'usuarios'];
 
   // ── Listener em tempo real para coleção vendas ────────────────────
   try {
@@ -624,6 +624,14 @@ const FirebaseService = (() => {
        if (!snap.exists()) return;
        const dados = snap.data()?.dados;
        if (!dados) return;
+       // Usuarios: salva direto no localStorage de usuários, não via Store genérico
+       if (col === 'usuarios') {
+         if (Array.isArray(dados)) {
+           try { localStorage.setItem('CH_USERS', JSON.stringify(dados)); } catch(_) {}
+           EventBus.emit('usuarios:atualizados', dados);
+         }
+         return;
+       }
        const key = CONSTANTS.DB[col.toUpperCase()];
        if (!key) return;
        try { localStorage.setItem(key, JSON.stringify(dados)); } catch(_) {}

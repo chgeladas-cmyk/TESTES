@@ -78,21 +78,24 @@ body::before {
   background-clip: text;
 }
 
-.pin-input {
-  font-size: 2rem !important;
-  font-family: 'Syne', monospace;
+.login-input {
+  font-size: 1rem;
+  font-family: 'Syne', sans-serif;
   background: rgba(255,255,255,.03);
   border: 2px solid rgba(255,255,255,.08);
   border-radius: 1.25rem;
   color: #fff;
-  padding: 1.2rem;
+  padding: 1rem 1.25rem;
   width: 100%;
-  text-align: center;
-  letter-spacing: .5em;
+  text-align: left;
+  letter-spacing: .02em;
   outline: none;
   transition: all .2s;
+  box-sizing: border-box;
+  margin-bottom: .75rem;
 }
-.pin-input:focus {
+.login-input::placeholder { color: #475569; }
+.login-input:focus {
   border-color: rgba(59,130,246,.6);
   background: rgba(59,130,246,.05);
   box-shadow: 0 0 0 4px rgba(59,130,246,.12);
@@ -369,16 +372,18 @@ body.is-admin .valid-only { display: block; }
   <div class="lock-card">
     <div style="font-size:3rem;margin-bottom:1rem">🍺</div>
     <p class="lock-logo">CH Geladas</p>
-    <p style="font-size:.65rem;color:#334155;font-weight:700;text-transform:uppercase;letter-spacing:.12em;margin:.5rem 0 2.5rem">Sistema de Gestão</p>
+    <p style="font-size:.65rem;color:#334155;font-weight:700;text-transform:uppercase;letter-spacing:.12em;margin:.5rem 0 2rem">Sistema de Gestão</p>
 
-    <input type="password" id="pinInput" inputmode="numeric"
-      autocomplete="current-password" maxlength="8"
-      class="pin-input" placeholder="· · · · ·">
+    <input type="text" id="loginNome" autocomplete="username"
+      class="login-input" placeholder="👤 Usuário">
 
-    <div id="lockError" class="hidden" style="font-size:.7rem;color:#f87171;font-weight:700;margin:.75rem 0;min-height:1.2rem;"></div>
+    <input type="password" id="loginSenha" autocomplete="current-password"
+      class="login-input" placeholder="🔒 Senha">
+
+    <div id="lockError" class="hidden" style="font-size:.7rem;color:#f87171;font-weight:700;margin:.25rem 0 .5rem;min-height:1.2rem;"></div>
 
     <button onclick="doLogin()"
-      style="width:100%;padding:1.1rem;margin-top:.5rem;background:linear-gradient(135deg,#1d4ed8,#1e40af);color:#fff;border:none;border-radius:1.25rem;font-family:'Syne',sans-serif;font-weight:800;font-size:.85rem;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;transition:all .2s;box-shadow:0 8px 24px rgba(29,78,216,.3)">
+      style="width:100%;padding:1.1rem;margin-top:.25rem;background:linear-gradient(135deg,#1d4ed8,#1e40af);color:#fff;border:none;border-radius:1.25rem;font-family:'Syne',sans-serif;font-weight:800;font-size:.85rem;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;transition:all .2s;box-shadow:0 8px 24px rgba(29,78,216,.3)">
       Entrar
     </button>
 
@@ -716,12 +721,12 @@ body.is-admin .valid-only { display: block; }
           <select id="novoUserRole" style="width:100%;background:#0f172a;border:2px solid #1e293b;border-radius:.75rem;padding:.6rem .875rem;color:#fff;font-size:.85rem;outline:none;font-family:inherit;margin-bottom:.5rem;display:block">
             <option value="">— Perfil —</option>
           </select>
-          <input type="password" id="novoUserPin" inputmode="numeric" maxlength="8" placeholder="PIN (mín. 3 dígitos)" style="width:100%;background:#0f172a;border:2px solid #1e293b;border-radius:.75rem;padding:.6rem .875rem;color:#fff;font-size:.9rem;outline:none;font-family:inherit;margin-bottom:.75rem;display:block">
+          <input type="password" id="novoUserPin" autocomplete="new-password" placeholder="Senha (mín. 3 caracteres)" style="width:100%;background:#0f172a;border:2px solid #1e293b;border-radius:.75rem;padding:.6rem .875rem;color:#fff;font-size:.9rem;outline:none;font-family:inherit;margin-bottom:.75rem;display:block">
           <button onclick="criarUsuario()" style="width:100%;padding:.75rem;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:.75rem;font-weight:800;font-size:.75rem;letter-spacing:.04em;text-transform:uppercase;cursor:pointer">Criar Usuário</button>
         </div>
         <p style="font-size:.6rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:#475569;margin-bottom:.6rem">Usuários Ativos</p>
         <div id="usuariosLista"></div>
-        <p style="font-size:.58rem;color:#1e293b;font-weight:600;margin-top:.75rem;line-height:1.5">PINs padrão (admin/001, pdv/123) continuam funcionando independente desta lista.</p>
+        <p style="font-size:.58rem;color:#1e293b;font-weight:600;margin-top:.75rem;line-height:1.5">O login padrão de admin usa usuário "admin" e a senha configurada no sistema (PIN admin). PDV usa "pdv" e a senha PDV.</p>
       </div>
 
       <!-- ── TAB PERFIS ── -->
@@ -778,17 +783,23 @@ body.is-admin .valid-only { display: block; }
    LOGIN
 ══════════════════════════════════ */
 async function doLogin() {
-  const pin = document.getElementById('pinInput').value.trim();
-  const err = document.getElementById('lockError');
-  if (!pin) return;
+  const nome  = document.getElementById('loginNome').value.trim();
+  const senha = document.getElementById('loginSenha').value.trim();
+  const err   = document.getElementById('lockError');
+  err.textContent = '';
+  err.classList.add('hidden');
+  if (!nome || !senha) {
+    err.textContent = 'Preencha usuário e senha.';
+    err.classList.remove('hidden');
+    return;
+  }
 
-  // Usa UserService (multi-usuário) quando disponível, fallback para AuthService (legado)
   let ok = false;
   if (window.CH?.UserService) {
-    const user = await window.CH.UserService.login(pin);
+    const user = await window.CH.UserService.login(nome, senha);
     ok = !!user;
   } else {
-    ok = await AuthService.login(pin);
+    ok = await AuthService.login(senha);
   }
 
   if (ok) {
@@ -804,13 +815,15 @@ async function doLogin() {
       setTimeout(_aplicarPermissoesHub, 100);
     }, 400);
   } else {
-    err.textContent = 'PIN incorreto. Tente novamente.';
-    document.getElementById('pinInput').value = '';
-    document.getElementById('pinInput').focus();
+    err.textContent = 'Usuário ou senha incorretos.';
+    err.classList.remove('hidden');
+    document.getElementById('loginSenha').value = '';
+    document.getElementById('loginSenha').focus();
   }
 }
 
-document.getElementById('pinInput').addEventListener('keyup', e => { if (e.key === 'Enter') { e.preventDefault(); doLogin(); } });
+document.getElementById('loginSenha').addEventListener('keyup', e => { if (e.key === 'Enter') { e.preventDefault(); doLogin(); } });
+document.getElementById('loginNome').addEventListener('keyup', e => { if (e.key === 'Enter') { document.getElementById('loginSenha').focus(); } });
 
 function doLogout() {
   if (!confirm('Encerrar sessão?')) return;
@@ -1343,13 +1356,13 @@ function _renderUsuarios() {
 }
 
 async function criarUsuario() {
-  const nome = document.getElementById('novoUserNome')?.value.trim();
-  const role = document.getElementById('novoUserRole')?.value;
-  const pin  = document.getElementById('novoUserPin')?.value.trim();
-  if (!nome || !role || !pin) { showToast('Preencha todos os campos', '', 'error'); return; }
-  if (pin.length < 3)         { showToast('PIN mínimo 3 dígitos', '', 'error'); return; }
+  const nome  = document.getElementById('novoUserNome')?.value.trim();
+  const role  = document.getElementById('novoUserRole')?.value;
+  const senha = document.getElementById('novoUserPin')?.value.trim();
+  if (!nome || !role || !senha) { showToast('Preencha todos os campos', '', 'error'); return; }
+  if (senha.length < 3)         { showToast('Senha mínima 3 caracteres', '', 'error'); return; }
   try {
-    await window.CH.UserService.criarUsuario({ nome, role, pin });
+    await window.CH.UserService.criarUsuario({ nome, role, senha });
     const p = window.CH.PermissoesService?.getPerfil(role);
     showToast(`${nome} criado!`, p?.label || role, 'success');
     document.getElementById('novoUserNome').value = '';
@@ -1570,7 +1583,7 @@ window.addEventListener('DOMContentLoaded', () => {
     iniciarHub();
     setTimeout(_aplicarPermissoesHub, 100);
   } else {
-    setTimeout(() => document.getElementById('pinInput')?.focus(), 300);
+    setTimeout(() => document.getElementById('loginNome')?.focus(), 300);
   }
 });
 </script>

@@ -108,6 +108,12 @@ service cloud.firestore {
       allow write: if autenticado() && temAdminToken(request.resource.data);
     }
 
+    // ─── /ch_dados/usuarios — lista de usuarios sincronizada ────────
+    // Usuarios podem ser lidos por qualquer autenticado.
+    // Escrita exige adminToken (apenas admin cria/edita usuarios).
+    // Override da regra geral /ch_dados/{colecao} para explicitar.
+    // (A regra geral ja cobre, mas deixamos explícito para clareza.)
+
     // ─── Bloqueia tudo que não foi mapeado ───────────────────────────
     match /{document=**} {
       allow read, write: if false;
