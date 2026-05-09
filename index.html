@@ -500,6 +500,13 @@ body.is-admin .valid-only { display: block; }
       <div class="app-desc">PDV · Carrinho · Pagamento</div>
     </a>
 
+    <!-- AVULSA -->
+    <a href="avulsa.html" class="app-card c-purple" data-modulo="avulsa" style="animation-delay:.08s">
+      <div class="app-icon">💜</div>
+      <div class="app-name">Avulsa</div>
+      <div class="app-desc">Venda rápida · Serviços</div>
+    </a>
+
     <!-- ESTOQUE -->
     <a href="estoque.html" class="app-card c-green" data-modulo="estoque" style="animation-delay:.1s;display:none">
       <div class="app-badge" id="badgeEstoque"></div>
@@ -1520,6 +1527,13 @@ function _aplicarPermissoesHub() {
     if (mod === 'aprovacao') {
       const ok = isAdm
         || (Perm && (Perm.temAcesso(role,'aprovacao_controle') || Perm.temAcesso(role,'aprovacao_validacao')));
+      card.style.display = ok ? '' : 'none';
+      return;
+    }
+    // avulsa: mostra para qualquer role com acesso a vendas
+    if (mod === 'avulsa') {
+      const PODE_AVULSA = ['adm','admin','gerente','operador','pdv','colaborador'];
+      const ok = PODE_AVULSA.includes(role) || (Perm && Perm.temAcesso(role,'vendas'));
       card.style.display = ok ? '' : 'none';
       return;
     }
