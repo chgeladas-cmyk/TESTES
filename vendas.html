@@ -777,22 +777,67 @@ function renderClientesFiado() {
 }
 
 function confirmarFiado(clienteId) {
+  const { Store, AuthService, Utils, EventBus } = window.CH;
   const cliente = Store.getFiado().find(c=>c.id===clienteId);
   if (!cliente) return;
+  const total  = CartService.getTotal();
+  const itens  = CartService.getItems();
+
   // Verifica limite
-  const total = CartService.getTotal();
   if (cliente.limite > 0 && (cliente.saldo||0) + total > cliente.limite) {
     UIService.showToast('Limite insuficiente', `Limite: ${Utils.formatCurrency(cliente.limite)}`, 'error'); return;
   }
   UIService.closeModal('modalFiadoCliente');
-  // Lança no fiado do cliente
+
+  // ── Precisa de aprovação? ─────────────────────────────────────────
+  if (_verificarAprovacao()) {
+    // Cria venda pendente SEM baixar estoque ainda
+    const itensDesc = itens.map(i=>`${i.nome} x${i.qtd}`).join(', ');
+    const venda = {
+      id:           Utils.generateId(),
+      dataCurta:    Utils.todayISO(),
+      data:         Utils.today(),
+      hora:         Utils.nowTime(),
+      criadoEm:     Utils.nowISO(),
+      itens,
+      total,
+      subtotal:     CartService.getSubtotal ? CartService.getSubtotal() : total,
+      desconto:     CartService.getDesconto ? CartService.getDesconto() : 0,
+      lucro:        itens.reduce((s,i) => s + (i.preco-(i.custo||0))*i.qtd, 0),
+      formaPgto:    `Fiado — ${cliente.nome}`,
+      origem:       'PDV',
+      operador:     AuthService.getNome(),
+      role:         AuthService.getRole(),
+      status:       'pendente',
+      _fbSynced:    false,
+      _fiado:       true,
+      _fiadoClienteId:   clienteId,
+      _fiadoClienteNome: cliente.nome,
+      _baixouEstoque:    false, // estoque SÓ baixa após aprovação
+    };
+    Store.mutateVendas(v => { v.unshift(venda); });
+    if (window.CH.SyncQueue) window.CH.SyncQueue.enqueue('salvar', 'vendas', [venda]);
+    CartService.clear();
+    EventBus.emit('venda:pendente', venda);
+    renderCatalogo();
+    atualizarAlerta();
+    UIService.showToast(`Fiado ${cliente.nome}`, 'Aguardando aprovação', 'warning');
+    return;
+  }
+
+  // ── Sem aprovação: lança direto ───────────────────────────────────
+  const itensDesc = itens.map(i=>`${i.nome} x${i.qtd}`).join(', ');
   Store.mutateFiado(fiado => {
     const c = fiado.find(x=>x.id===clienteId);
     if (!c) return;
     c.saldo = (c.saldo||0) + total;
     if (!Array.isArray(c.movimentacoes)) c.movimentacoes = [];
-    const itensDesc = CartService.getItems().map(i=>`${i.nome} x${i.qtd}`).join(', ');
-    c.movimentacoes.unshift({ id:Utils.generateId(), tipo:'fiado', descricao:itensDesc||'Compra PDV', valor:total, criadoEm:new Date().toISOString() });
+    c.movimentacoes.unshift({
+      id: Utils.generateId(), tipo: 'fiado',
+      descricao: itensDesc || 'Compra PDV',
+      valor: total, itens,
+      criadoEm: new Date().toISOString(),
+    });
     if (c.limite>0 && c.saldo >= c.limite) c.bloqueado = true;
   });
   EventBus.emit('fiado:lancado', { cliente: cliente.nome, valor: total, obs: 'Venda PDV' });

@@ -74,6 +74,64 @@ body { font-family:'DM Sans',sans-serif; background:var(--bg); color:#e2e8f0; mi
 #toast.ok  { border-color:rgba(16,185,129,.4); color:#34d399; }
 #toast.err { border-color:rgba(239,68,68,.4);  color:#f87171; }
 
+/* ── VENDA AVULSA ── */
+.avulsa-wrap { padding:1rem 1rem 2rem; }
+.avulsa-card { background:rgba(12,16,26,.9); border:1px solid rgba(255,255,255,.07); border-radius:1.25rem; padding:1.25rem; margin-bottom:.875rem; }
+.avulsa-titulo { font-family:'Syne',sans-serif; font-weight:800; font-size:.8rem; text-transform:uppercase; letter-spacing:.07em; color:#a78bfa; margin-bottom:1rem; }
+.avulsa-label { font-size:.62rem; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:#64748b; margin-bottom:.35rem; display:block; }
+.avulsa-input { width:100%; background:rgba(255,255,255,.04); border:1.5px solid rgba(255,255,255,.08); border-radius:.75rem; color:#f1f5f9; font-size:1rem; padding:.75rem 1rem; outline:none; font-family:'DM Sans',sans-serif; transition:.2s; margin-bottom:.75rem; }
+.avulsa-input:focus { border-color:rgba(167,139,250,.5); background:rgba(167,139,250,.04); }
+.avulsa-valor { font-size:1.6rem !important; font-family:'Syne',sans-serif !important; font-weight:800 !important; text-align:center; color:#a78bfa !important; letter-spacing:-.01em; }
+.avulsa-pgto-grid { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; margin-bottom:.75rem; }
+.avulsa-pgto-btn { padding:.65rem; border-radius:.75rem; font-size:.72rem; font-weight:700; text-align:center; cursor:pointer; border:1.5px solid rgba(255,255,255,.08); background:rgba(255,255,255,.03); color:#64748b; transition:.2s; }
+.avulsa-pgto-btn.sel { border-color:rgba(167,139,250,.5); background:rgba(167,139,250,.12); color:#a78bfa; }
+.avulsa-recebido-wrap { display:none; margin-bottom:.75rem; }
+.avulsa-recebido-wrap.show { display:block; }
+.avulsa-troco { text-align:center; font-family:'Syne',sans-serif; font-weight:800; font-size:1.1rem; padding:.5rem; border-radius:.625rem; margin-top:.5rem; }
+.avulsa-troco.pos { color:#34d399; background:rgba(16,185,129,.1); }
+.avulsa-troco.neg { color:#f87171; background:rgba(239,68,68,.1); }
+.avulsa-btn-confirmar { width:100%; padding:1rem; border-radius:1rem; font-family:'Syne',sans-serif; font-weight:800; font-size:.9rem; letter-spacing:.04em; text-transform:uppercase; cursor:pointer; border:none; background:linear-gradient(135deg,#7c3aed,#6d28d9); color:#fff; box-shadow:0 8px 24px rgba(124,58,237,.3); transition:.2s; margin-top:.25rem; }
+.avulsa-btn-confirmar:disabled { opacity:.4; cursor:not-allowed; }
+.avulsa-historico-item { display:flex; align-items:center; gap:.75rem; padding:.6rem 0; border-bottom:1px solid rgba(255,255,255,.05); }
+.avulsa-historico-item:last-child { border-bottom:none; }
+.avulsa-hist-desc { flex:1; }
+.avulsa-hist-nome { font-size:.8rem; font-weight:600; color:#e2e8f0; }
+.avulsa-hist-sub { font-size:.63rem; color:#64748b; margin-top:.1rem; }
+.avulsa-hist-val { font-family:'Syne',sans-serif; font-weight:800; font-size:.9rem; color:#a78bfa; }
+.avulsa-hist-pill { font-size:.6rem; font-weight:700; padding:.1rem .45rem; border-radius:999px; background:rgba(167,139,250,.12); color:#a78bfa; white-space:nowrap; }
+
+/* ── RASTREIO DIÁRIO ── */
+.rastreio-filtro { display:flex; gap:.5rem; margin:.75rem 1rem 0; overflow-x:auto; padding-bottom:.25rem; }
+.rastreio-filtro button { flex-shrink:0; padding:.35rem .85rem; border-radius:999px; font-size:.68rem; font-weight:700; border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.04); color:#64748b; cursor:pointer; white-space:nowrap; transition:.2s; }
+.rastreio-filtro button.ativo { background:rgba(245,158,11,.18); border-color:rgba(245,158,11,.4); color:#f59e0b; }
+.usuario-bloco { margin:.75rem 1rem; background:rgba(12,16,26,.8); border:1px solid rgba(255,255,255,.07); border-radius:1rem; overflow:hidden; }
+.usuario-header { display:flex; align-items:center; justify-content:space-between; padding:.75rem 1rem; background:rgba(255,255,255,.03); border-bottom:1px solid rgba(255,255,255,.06); cursor:pointer; }
+.usuario-nome { font-family:'Syne',sans-serif; font-weight:700; font-size:.85rem; }
+.usuario-stats { display:flex; gap:.5rem; }
+.stat-chip { font-size:.62rem; font-weight:700; padding:.15rem .5rem; border-radius:999px; }
+.chip-apr  { background:rgba(59,130,246,.15);  color:#60a5fa; }
+.chip-val  { background:rgba(16,185,129,.15);  color:#34d399; }
+.chip-rej  { background:rgba(239,68,68,.15);   color:#f87171; }
+.chip-tot  { background:rgba(241,245,249,.08); color:#94a3b8; }
+.usuario-body { padding:.5rem 0; }
+.rastreio-venda { display:flex; align-items:flex-start; gap:.625rem; padding:.45rem 1rem; border-bottom:1px solid rgba(255,255,255,.04); }
+.rastreio-venda:last-child { border-bottom:none; }
+.rastreio-icon { width:1.75rem; height:1.75rem; border-radius:.5rem; display:flex; align-items:center; justify-content:center; font-size:.8rem; flex-shrink:0; margin-top:.1rem; }
+.ri-apr  { background:rgba(59,130,246,.15); }
+.ri-val  { background:rgba(16,185,129,.15); }
+.ri-rej  { background:rgba(239,68,68,.15); }
+.rastreio-info { flex:1; }
+.rastreio-titulo { font-size:.78rem; font-weight:600; color:#e2e8f0; }
+.rastreio-sub { font-size:.65rem; color:#64748b; margin-top:.1rem; }
+.rastreio-valor { font-family:'Syne',sans-serif; font-size:.82rem; font-weight:700; color:#f1f5f9; white-space:nowrap; }
+.rastreio-total-row { display:flex; justify-content:space-between; align-items:center; padding:.6rem 1rem; background:rgba(255,255,255,.02); border-top:1px solid rgba(255,255,255,.06); }
+.rastreio-total-label { font-size:.65rem; text-transform:uppercase; letter-spacing:.05em; color:#64748b; }
+.rastreio-total-val { font-family:'Syne',sans-serif; font-size:.95rem; font-weight:800; color:#34d399; }
+.rastreio-vazio { text-align:center; padding:2.5rem 1rem; color:#475569; font-size:.8rem; }
+.rastreio-data-sel { display:flex; align-items:center; gap:.5rem; margin:.5rem 1rem 0; }
+.rastreio-data-sel label { font-size:.65rem; text-transform:uppercase; letter-spacing:.06em; color:#64748b; font-weight:700; }
+.rastreio-data-sel input { background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.1); border-radius:.5rem; color:#e2e8f0; font-size:.8rem; padding:.3rem .6rem; outline:none; font-family:'DM Sans',sans-serif; }
+
 /* ── MODAL REJEIÇÃO ── */
 .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:200; display:none; align-items:flex-end; }
 .modal-bg.open { display:flex; }
@@ -101,6 +159,8 @@ body { font-family:'DM Sans',sans-serif; background:var(--bg); color:#e2e8f0; mi
   </div>
   <div class="tab" data-tab="validadas" onclick="switchTab('validadas')">Validadas</div>
   <div class="tab" data-tab="rejeitadas" onclick="switchTab('rejeitadas')">Rejeitadas</div>
+  <div class="tab" data-tab="avulsa"    onclick="switchTab('avulsa')">💜 Avulsa</div>
+  <div class="tab" data-tab="rastreio"   onclick="switchTab('rastreio')">📊 Rastreio</div>
 </div>
 
 <!-- RESUMO -->
@@ -114,6 +174,70 @@ body { font-family:'DM Sans',sans-serif; background:var(--bg); color:#e2e8f0; mi
 
 <!-- LISTA PRINCIPAL -->
 <div id="lista"></div>
+
+<!-- VENDA AVULSA -->
+<div id="avulsaContainer" style="display:none">
+  <div class="avulsa-wrap">
+
+    <!-- Formulário -->
+    <div class="avulsa-card">
+      <div class="avulsa-titulo">💜 Nova Venda Avulsa</div>
+
+      <label class="avulsa-label">Descrição da venda</label>
+      <input type="text" id="avulsaDesc" class="avulsa-input"
+        placeholder="Ex: Serviço, produto, comissão…"
+        oninput="avulsaValidar()">
+
+      <label class="avulsa-label">Valor (R$)</label>
+      <input type="number" id="avulsaValor" class="avulsa-input avulsa-valor"
+        placeholder="0,00" min="0" step="0.01"
+        oninput="avulsaValidar(); avulsaCalcTroco()">
+
+      <label class="avulsa-label">Forma de pagamento</label>
+      <div class="avulsa-pgto-grid">
+        <div class="avulsa-pgto-btn sel" onclick="avulsaSelPgto(this,'Dinheiro')">💵 Dinheiro</div>
+        <div class="avulsa-pgto-btn"    onclick="avulsaSelPgto(this,'PIX')">⚡ PIX</div>
+        <div class="avulsa-pgto-btn"    onclick="avulsaSelPgto(this,'Cartão Débito')">💳 Débito</div>
+        <div class="avulsa-pgto-btn"    onclick="avulsaSelPgto(this,'Cartão Crédito')">💳 Crédito</div>
+      </div>
+
+      <div class="avulsa-recebido-wrap" id="avulsaRecebidoWrap">
+        <label class="avulsa-label">Valor recebido (R$)</label>
+        <input type="number" id="avulsaRecebido" class="avulsa-input"
+          placeholder="0,00" min="0" step="0.01"
+          oninput="avulsaCalcTroco()">
+        <div id="avulsaTroco" class="avulsa-troco" style="display:none"></div>
+      </div>
+
+      <button id="avulsaBtnConfirmar" class="avulsa-btn-confirmar"
+        onclick="avulsaConfirmar()" disabled>
+        Registrar Venda
+      </button>
+    </div>
+
+    <!-- Histórico do dia -->
+    <div class="avulsa-card">
+      <div class="avulsa-titulo">📋 Avulsas de hoje</div>
+      <div id="avulsaHistorico"><p style="font-size:.75rem;color:#475569;text-align:center;padding:1rem">Nenhuma venda avulsa hoje.</p></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- RASTREIO DIÁRIO -->
+<div id="rastreioContainer" style="display:none;padding-bottom:2rem">
+  <div class="rastreio-data-sel">
+    <label>📅 Data</label>
+    <input type="date" id="rastreioData" onchange="renderRastreio()">
+  </div>
+  <div class="rastreio-filtro" id="rastreioFiltros">
+    <button class="ativo" onclick="setFiltroRastreio('todos',this)">Todos</button>
+    <button onclick="setFiltroRastreio('aprovada',this)">Aprovações</button>
+    <button onclick="setFiltroRastreio('validada',this)">Validações</button>
+    <button onclick="setFiltroRastreio('rejeitada',this)">Rejeições</button>
+  </div>
+  <div id="rastreioLista"></div>
+</div>
 
 <!-- MODAL REJEIÇÃO -->
 <div class="modal-bg" id="modalRejeitar">
@@ -199,7 +323,18 @@ window.addEventListener('DOMContentLoaded', () => {
 function switchTab(tab) {
   _tabAtual = tab;
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
-  renderizar();
+  const isRastreio  = tab === 'rastreio';
+  const isAvulsa    = tab === 'avulsa';
+  const isNormal    = !isRastreio && !isAvulsa;
+  // Mostra/esconde containers corretos
+  document.getElementById('lista').style.display             = isNormal   ? ''      : 'none';
+  document.getElementById('resumoGrid').style.display        = isNormal   ? ''      : 'none';
+  document.getElementById('loteBar').style.display           = 'none';
+  document.getElementById('rastreioContainer').style.display = isRastreio ? 'block' : 'none';
+  document.getElementById('avulsaContainer').style.display   = isAvulsa   ? 'block' : 'none';
+  if (isRastreio)   { _initRastreio(); }
+  else if (isAvulsa){ _initAvulsa(); }
+  else              { renderizar(); }
 }
 
 // ── RENDERIZAR ────────────────────────────────────────────────────
@@ -423,6 +558,249 @@ function toast(msg, tipo = 'ok') {
   el.className   = 'show ' + tipo;
   clearTimeout(_toastTimer);
   _toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+
+
+// ── VENDA AVULSA ──────────────────────────────────────────────────
+let _avulsaPgto = 'Dinheiro';
+
+function _initAvulsa() {
+  _avulsaPgto = 'Dinheiro';
+  document.getElementById('avulsaDesc').value    = '';
+  document.getElementById('avulsaValor').value   = '';
+  document.getElementById('avulsaRecebido').value = '';
+  document.getElementById('avulsaTroco').style.display = 'none';
+  document.getElementById('avulsaRecebidoWrap').classList.remove('show');
+  document.querySelectorAll('.avulsa-pgto-btn').forEach((b,i) => b.classList.toggle('sel', i === 0));
+  avulsaValidar();
+  avulsaRenderHistorico();
+}
+
+function avulsaSelPgto(btn, forma) {
+  _avulsaPgto = forma;
+  document.querySelectorAll('.avulsa-pgto-btn').forEach(b => b.classList.remove('sel'));
+  btn.classList.add('sel');
+  const isDinheiro = forma === 'Dinheiro';
+  document.getElementById('avulsaRecebidoWrap').classList.toggle('show', isDinheiro);
+  document.getElementById('avulsaTroco').style.display = 'none';
+  avulsaValidar();
+}
+
+function avulsaCalcTroco() {
+  if (_avulsaPgto !== 'Dinheiro') return;
+  const val = parseFloat(document.getElementById('avulsaValor').value) || 0;
+  const rec = parseFloat(document.getElementById('avulsaRecebido').value) || 0;
+  const el  = document.getElementById('avulsaTroco');
+  if (!rec || !val) { el.style.display = 'none'; return; }
+  const troco = rec - val;
+  el.style.display = 'block';
+  el.className = 'avulsa-troco ' + (troco >= 0 ? 'pos' : 'neg');
+  el.textContent = troco >= 0
+    ? 'Troco: ' + _fmt(troco)
+    : 'Falta: ' + _fmt(Math.abs(troco));
+}
+
+function avulsaValidar() {
+  const desc  = document.getElementById('avulsaDesc').value.trim();
+  const valor = parseFloat(document.getElementById('avulsaValor').value) || 0;
+  const ok    = desc.length > 0 && valor > 0;
+  document.getElementById('avulsaBtnConfirmar').disabled = !ok;
+}
+
+function avulsaConfirmar() {
+  const { Store, AuthService, Utils, EventBus } = window.CH;
+  const desc  = document.getElementById('avulsaDesc').value.trim();
+  const valor = parseFloat(document.getElementById('avulsaValor').value) || 0;
+  const rec   = parseFloat(document.getElementById('avulsaRecebido').value) || 0;
+  if (!desc || !valor) return;
+
+  const troco = _avulsaPgto === 'Dinheiro' && rec > 0 ? rec - valor : 0;
+
+  const venda = {
+    id:        Utils.generateId(),
+    dataCurta: Utils.todayISO(),
+    data:      Utils.today(),
+    hora:      Utils.nowTime(),
+    criadoEm:  Utils.nowISO(),
+    itens:     [{ prodId: 'avulso', nome: desc, qtd: 1, preco: valor, custo: 0, label: 'UNID' }],
+    total:     valor,
+    subtotal:  valor,
+    desconto:  0,
+    lucro:     valor,
+    formaPgto: _avulsaPgto,
+    origem:    'avulsa',
+    operador:  AuthService.getNome(),
+    role:      AuthService.getRole(),
+    status:    'concluida',
+    _fbSynced: false,
+    _troco:    troco,
+    _avulsa:   true,
+    descricao: desc,
+  };
+
+  Store.mutateVendas(v => { v.unshift(venda); });
+  if (window.CH.SyncQueue) window.CH.SyncQueue.enqueue('salvar', 'vendas', [venda]);
+
+  // Registra no financeiro se disponível
+  if (window.CH.FinanceiroService) window.CH.FinanceiroService.registrarReceita(venda);
+
+  EventBus.emit('venda:finalizada', venda);
+  toast('Venda avulsa registrada!', 'ok');
+  _initAvulsa();
+}
+
+function avulsaRenderHistorico() {
+  const hoje  = Utils.todayISO();
+  const avulsas = Store.getVendas()
+    .filter(v => v._avulsa && v.dataCurta === hoje)
+    .slice(0, 20);
+
+  const el = document.getElementById('avulsaHistorico');
+  if (!avulsas.length) {
+    el.innerHTML = '<p style="font-size:.75rem;color:#475569;text-align:center;padding:1rem">Nenhuma venda avulsa hoje.</p>';
+    return;
+  }
+
+  const totalDia = avulsas.reduce((s, v) => s + (v.total || 0), 0);
+
+  el.innerHTML = avulsas.map(v => `
+    <div class="avulsa-historico-item">
+      <div class="avulsa-hist-desc">
+        <div class="avulsa-hist-nome">${v.descricao || v.itens?.[0]?.nome || '—'}</div>
+        <div class="avulsa-hist-sub">${v.hora} · ${v.operador} · <span class="avulsa-hist-pill">${v.formaPgto}</span></div>
+      </div>
+      <div class="avulsa-hist-val">${_fmt(v.total)}</div>
+    </div>`).join('') +
+  `<div style="display:flex;justify-content:space-between;align-items:center;padding:.75rem 0 0;border-top:1px solid rgba(255,255,255,.07);margin-top:.5rem">
+    <span style="font-size:.62rem;text-transform:uppercase;letter-spacing:.06em;color:#64748b">Total do dia</span>
+    <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:1rem;color:#a78bfa">${_fmt(totalDia)}</span>
+  </div>`;
+}
+
+// ── RASTREIO DIÁRIO ───────────────────────────────────────────────
+let _filtroRastreio = 'todos';
+let _blocoExpandido = null;
+
+function _initRastreio() {
+  const inp = document.getElementById('rastreioData');
+  if (!inp.value) inp.value = Utils.todayISO();
+  renderRastreio();
+}
+
+function setFiltroRastreio(tipo, btn) {
+  _filtroRastreio = tipo;
+  document.querySelectorAll('.rastreio-filtro button').forEach(b => b.classList.remove('ativo'));
+  btn.classList.add('ativo');
+  renderRastreio();
+}
+
+function _toggleBloco(userId) {
+  const body = document.getElementById('rbody_' + userId);
+  const icon = document.getElementById('ricon_' + userId);
+  if (!body) return;
+  const aberto = body.style.display !== 'none';
+  body.style.display = aberto ? 'none' : 'block';
+  if (icon) icon.style.transform = aberto ? 'rotate(0deg)' : 'rotate(180deg)';
+}
+
+function renderRastreio() {
+  const data  = document.getElementById('rastreioData').value;
+  if (!data) return;
+  const todas = Store.getVendas();
+
+  // Seleciona vendas do dia que tiveram alguma ação de aprovação
+  const vendas = todas.filter(v => {
+    const dApr = v.aprovadaEm  ? v.aprovadaEm.slice(0,10)  : null;
+    const dVal = v.validadaEm  ? v.validadaEm.slice(0,10)  : null;
+    const dRej = v.rejeitadaEm ? v.rejeitadaEm.slice(0,10) : null;
+    return dApr === data || dVal === data || dRej === data;
+  });
+
+  // Monta linhas de rastreio: cada venda pode gerar múltiplas ações
+  const acoes = [];
+  for (const v of vendas) {
+    if (v.aprovadaEm && v.aprovadaEm.slice(0,10) === data) {
+      acoes.push({ vendaId:v.id, tipo:'aprovada',  por: v.aprovadaPor  || '?', em: v.aprovadaEm,  total: v.total, operador: v.operador });
+    }
+    if (v.validadaEm && v.validadaEm.slice(0,10) === data) {
+      acoes.push({ vendaId:v.id, tipo:'validada',  por: v.validadaPor  || '?', em: v.validadaEm,  total: v.total, operador: v.operador });
+    }
+    if (v.rejeitadaEm && v.rejeitadaEm.slice(0,10) === data) {
+      acoes.push({ vendaId:v.id, tipo:'rejeitada', por: v.rejeitadaPor || '?', em: v.rejeitadaEm, total: v.total, operador: v.operador, motivo: v.motivoRejeicao });
+    }
+  }
+
+  // Filtra por tipo se necessário
+  const filtradas = _filtroRastreio === 'todos' ? acoes : acoes.filter(a => a.tipo === _filtroRastreio);
+
+  // Agrupa por usuário (quem executou a ação)
+  const porUsuario = {};
+  for (const a of filtradas) {
+    if (!porUsuario[a.por]) porUsuario[a.por] = [];
+    porUsuario[a.por].push(a);
+  }
+
+  const lista = document.getElementById('rastreioLista');
+  const usuarios = Object.keys(porUsuario);
+
+  if (!usuarios.length) {
+    lista.innerHTML = '<div class="rastreio-vazio"><p>Nenhuma ação de aprovação registrada para esta data.</p></div>';
+    return;
+  }
+
+  lista.innerHTML = usuarios.map(u => {
+    const itens   = porUsuario[u].sort((a,b) => (a.em||'').localeCompare(b.em||''));
+    const nApr    = itens.filter(i => i.tipo === 'aprovada').length;
+    const nVal    = itens.filter(i => i.tipo === 'validada').length;
+    const nRej    = itens.filter(i => i.tipo === 'rejeitada').length;
+    const totalVal = itens.filter(i => i.tipo === 'validada').reduce((s,i) => s + (i.total||0), 0);
+    const userId  = u.replace(/[^a-z0-9]/gi,'_');
+
+    const chips = [
+      nApr ? `<span class="stat-chip chip-apr">✅ ${nApr} apr</span>` : '',
+      nVal ? `<span class="stat-chip chip-val">💚 ${nVal} val</span>` : '',
+      nRej ? `<span class="stat-chip chip-rej">❌ ${nRej} rej</span>` : '',
+    ].filter(Boolean).join('');
+
+    const linhas = itens.map(a => {
+      const hora = a.em ? a.em.slice(11,16) : '--:--';
+      const cfg = {
+        aprovada:  { icon:'✅', cls:'ri-apr', label:'Aprovou venda de' },
+        validada:  { icon:'💚', cls:'ri-val', label:'Validou venda de' },
+        rejeitada: { icon:'❌', cls:'ri-rej', label:'Rejeitou venda de' },
+      }[a.tipo] || {};
+      const motivo = a.motivo ? `<br>Motivo: ${a.motivo}` : '';
+      return `
+        <div class="rastreio-venda">
+          <div class="rastreio-icon ${cfg.cls}">${cfg.icon}</div>
+          <div class="rastreio-info">
+            <div class="rastreio-titulo">${cfg.label} <b>${a.operador||'?'}</b></div>
+            <div class="rastreio-sub">${hora}${motivo}</div>
+          </div>
+          <div class="rastreio-valor">${_fmt(a.total||0)}</div>
+        </div>`;
+    }).join('');
+
+    return `
+    <div class="usuario-bloco">
+      <div class="usuario-header" onclick="_toggleBloco('${userId}')">
+        <div>
+          <div class="usuario-nome">👤 ${u}</div>
+          <div class="usuario-stats" style="margin-top:.25rem">${chips}</div>
+        </div>
+        <i id="ricon_${userId}" class="fas fa-chevron-down" style="color:#475569;font-size:.75rem;transition:.2s"></i>
+      </div>
+      <div id="rbody_${userId}" class="usuario-body">
+        ${linhas}
+        ${totalVal > 0 ? `
+        <div class="rastreio-total-row">
+          <span class="rastreio-total-label">Total validado</span>
+          <span class="rastreio-total-val">${_fmt(totalVal)}</span>
+        </div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 // Fecha modal ao clicar fora
