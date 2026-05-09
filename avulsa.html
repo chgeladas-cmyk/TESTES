@@ -159,7 +159,8 @@ body { background:#04060d; color:#f1f5f9; font-family:'DM Sans',sans-serif; min-
 <script src="./services/vendasService.js"></script>
 <script>
 'use strict';
-const { Store, AuthService, Utils, EventBus } = window.CH;
+// Não redeclara: usa window.CH diretamente para evitar conflito com core.js
+function _CH() { return window.CH; }
 
 /* ── LOGIN ── */
 async function doLogin() {
@@ -174,17 +175,17 @@ async function doLogin() {
     const user = await window.CH.UserService.login(nome, senha);
     ok = !!user;
   } else {
-    ok = await AuthService.login(senha);
+    ok = await window.CH.AuthService.login(senha);
   }
 
   if (ok) {
-    const role = AuthService.getRole();
+    const role = window.CH.AuthService.getRole();
     // Bloqueia roles sem acesso a vendas
     const PODE = ['adm','admin','gerente','operador','pdv','colaborador'];
     const Perm = window.CH.PermissoesService;
     const temVendas = PODE.includes(role) || (Perm && Perm.temAcesso(role,'vendas'));
     if (!temVendas) {
-      AuthService.logout();
+      window.CH.AuthService.logout();
       err.textContent = 'Seu perfil não tem acesso a vendas.';
       return;
     }
@@ -201,11 +202,11 @@ async function doLogin() {
 document.getElementById('loginSenha').addEventListener('keydown', e => { if (e.key==='Enter') doLogin(); });
 document.getElementById('loginNome').addEventListener('keydown',  e => { if (e.key==='Enter') document.getElementById('loginSenha').focus(); });
 
-function logout() { if (!confirm('Encerrar sessão?')) return; AuthService.logout(); location.reload(); }
+function logout() { if (!confirm('Encerrar sessão?')) return; window.CH.AuthService.logout(); location.reload(); }
 
 /* ── INIT ── */
 function init() {
-  const role = AuthService.getRole();
+  const role = window.CH.AuthService.getRole();
   const Perm = window.CH.PermissoesService;
   const info = Perm?.getPerfil(role) || {};
   const roleEl = document.getElementById('roleTag');
@@ -216,7 +217,7 @@ function init() {
     setTimeout(() => window.CH.SyncService.pull(), 500);
   });
 
-  EventBus.on('store:updated', renderHistorico);
+  window.CH.EventBus.on('store:updated', renderHistorico);
   renderHistorico();
 }
 
@@ -260,11 +261,11 @@ function registrar() {
   const troco = _pgto === 'Dinheiro' && rec > 0 ? rec - valor : 0;
 
   const venda = {
-    id:        Utils.generateId(),
-    dataCurta: Utils.todayISO(),
-    data:      Utils.today(),
-    hora:      Utils.nowTime(),
-    criadoEm:  Utils.nowISO(),
+    id:        window.CH.Utils.generateId(),
+    dataCurta: window.CH.window.CH.Utils.todayISO(),
+    data:      window.CH.Utils.today(),
+    hora:      window.CH.Utils.nowTime(),
+    criadoEm:  window.CH.Utils.nowISO(),
     itens:     [{ prodId:'avulso', nome:desc, qtd:1, preco:valor, custo:0, label:'UNID' }],
     total:     valor,
     subtotal:  valor,
@@ -272,8 +273,8 @@ function registrar() {
     lucro:     valor,
     formaPgto: _pgto,
     origem:    'avulsa',
-    operador:  AuthService.getNome(),
-    role:      AuthService.getRole(),
+    operador:  window.CH.AuthService.getNome(),
+    role:      window.CH.AuthService.getRole(),
     status:    'concluida',
     _fbSynced: false,
     _troco:    troco,
@@ -281,10 +282,10 @@ function registrar() {
     descricao: desc,
   };
 
-  Store.mutateVendas(v => { v.unshift(venda); });
+  window.CH.Store.mutateVendas(v => { v.unshift(venda); });
   if (window.CH.SyncQueue) window.CH.SyncQueue.enqueue('salvar', 'vendas', [venda]);
   if (window.CH.FinanceiroService) window.CH.FinanceiroService.registrarReceita?.(venda);
-  EventBus.emit('venda:finalizada', venda);
+  window.CH.EventBus.emit('venda:finalizada', venda);
 
   // Limpa form
   document.getElementById('avDesc').value    = '';
@@ -301,8 +302,8 @@ function registrar() {
 
 /* ── HISTÓRICO ── */
 function renderHistorico() {
-  const hoje   = Utils.todayISO();
-  const vendas = (Store.getVendas() || [])
+  const hoje   = window.CH.window.CH.Utils.todayISO();
+  const vendas = (window.CH.Store.getVendas() || [])
     .filter(v => v._avulsa && v.dataCurta === hoje)
     .slice(0, 30);
 
@@ -343,8 +344,8 @@ function toast(msg, tipo='ok') {
 
 // Verifica sessão ao carregar
 window.addEventListener('DOMContentLoaded', () => {
-  if (AuthService.isLogged()) {
-    const role = AuthService.getRole();
+  if (window.CH.AuthService.isLogged()) {
+    const role = window.CH.AuthService.getRole();
     const PODE = ['adm','admin','gerente','operador','pdv','colaborador'];
     const Perm = window.CH.PermissoesService;
     if (PODE.includes(role) || (Perm && Perm.temAcesso(role,'vendas'))) {
