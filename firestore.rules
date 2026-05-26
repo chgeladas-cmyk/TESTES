@@ -57,6 +57,31 @@ service cloud.firestore {
       return colecao in ['estoque', 'config', 'categorias'];
     }
 
+    // ─── /ch_dados/comandas — qualquer autenticado pode escrever ────
+    // Comandas são criadas por colaboradores/operadores sem adminToken
+    match /ch_dados/comandas {
+      allow read:  if autenticado();
+      allow write: if autenticado() && docValido(request.resource.data);
+    }
+
+    // ─── /ch_dados/fiado — qualquer autenticado pode escrever ───────
+    match /ch_dados/fiado {
+      allow read:  if autenticado();
+      allow write: if autenticado() && docValido(request.resource.data);
+    }
+
+    // ─── /ch_dados/cambio — qualquer autenticado pode escrever ──────
+    match /ch_dados/cambio {
+      allow read:  if autenticado();
+      allow write: if autenticado() && docValido(request.resource.data);
+    }
+
+    // ─── /ch_dados/perfis — qualquer autenticado pode ler, admin escreve ──
+    match /ch_dados/perfis {
+      allow read:  if autenticado();
+      allow write: if autenticado() && docValido(request.resource.data) && temAdminToken(request.resource.data);
+    }
+
     // ─── /ch_dados/{colecao} ─────────────────────────────────────────
     match /ch_dados/{colecao} {
 
@@ -72,11 +97,14 @@ service cloud.firestore {
     }
 
     // ─── /vendas/{vendaId} ───────────────────────────────────────────
+    // create: PDV e colaboradores (sem adminToken)
+    // update: qualquer autenticado (aprovação/validação pelo controlador/validador)
+    // delete: apenas admin (adminToken obrigatório)
     match /vendas/{vendaId} {
       allow create: if autenticado() && vendaValida(request.resource.data);
       allow read:   if autenticado();
-      allow update, delete: if autenticado()
-                             && temAdminToken(request.resource.data);
+      allow update: if autenticado();
+      allow delete: if autenticado() && temAdminToken(request.resource.data);
     }
 
     // ─── /movimentacoes/{movId} ──────────────────────────────────────
@@ -113,6 +141,35 @@ service cloud.firestore {
     // Escrita exige adminToken (apenas admin cria/edita usuarios).
     // Override da regra geral /ch_dados/{colecao} para explicitar.
     // (A regra geral ja cobre, mas deixamos explícito para clareza.)
+
+    // ─── SaaS: empresas, usuários, convites ─────────────────────────
+    match /saas_empresas/{empresaId} {
+      allow read:  if autenticado();
+      allow write: if autenticado();
+    }
+
+    match /saas_usuarios/{uid} {
+      allow read:  if autenticado();
+      allow write: if autenticado();
+    }
+
+    match /saas_convites/{codigo} {
+      allow read:  if autenticado();
+      allow write: if autenticado();
+    }
+
+    match /saas_dados/{empresaId}/{colecao}/{docId} {
+      allow read, write: if autenticado();
+    }
+
+    // ─── /ch_tripwire/{docId} — Log imutável de intrusões ────────────
+    // Qualquer autenticado (incluindo PDV anônimo) pode CRIAR.
+    // Ninguém pode atualizar ou deletar — nem o admin via console.
+    match /ch_tripwire/{docId} {
+      allow create: if autenticado();
+      allow read:   if autenticado();
+      allow update, delete: if false;
+    }
 
     // ─── Bloqueia tudo que não foi mapeado ───────────────────────────
     match /{document=**} {

@@ -621,6 +621,43 @@ function fecharDrawer() {
 /* ══ PAGAMENTO ══ */
 function abrirPagamento() {
   if (CartService.isEmpty()) return;
+
+  // ── Bloqueio de pré-requisitos para colaborador/PDV ────────────
+  // Admin e gerente são isentos — operam mesmo sem caixa ou ponto.
+  const { Store, AuthService, Utils } = window.CH;
+  const _role = AuthService.getRole();
+  const _rolesLivres = ['admin', 'adm', 'gerente'];
+
+  if (!_rolesLivres.includes(_role)) {
+    // 1. Verifica se existe qualquer ponto de entrada hoje
+    //    (não filtra por nome — o ponto é registrado manualmente pelo operador)
+    const _hoje      = Utils.todayISO();
+    const _pontoHoje = Store.getPonto().some(p =>
+      p.dataCurta === _hoje &&
+      p.tipo      === 'ENTRADA'
+    );
+    if (!_pontoHoje) {
+      UIService.showToast(
+        'Ponto não registrado',
+        'Bata o ponto de entrada antes de vender',
+        'warning'
+      );
+      return;
+    }
+
+    // 2. Verifica caixa aberto
+    const _caixaRaw = localStorage.getItem('CH_CAIXA_ATUAL');
+    if (!_caixaRaw) {
+      UIService.showToast(
+        'Caixa fechado',
+        'Abra o caixa antes de realizar vendas',
+        'warning'
+      );
+      return;
+    }
+  }
+  // ── Fim do bloqueio ────────────────────────────────────────────
+
   _setText('pgtoResumo', `${CartService.getCount()} itens — ${Utils.formatCurrency(CartService.getTotal())}`);
   const di = document.getElementById('descontoInput');
   if (di) di.value = '';
@@ -825,7 +862,8 @@ function confirmarFiado(clienteId) {
     return;
   }
 
-  // ── Sem aprovação: lança direto ───────────────────────────────────
+  // ── Sem aprovação: lança na conta (tab aberta) ────────────────────
+  // Registra na aba do cliente MAS não finaliza a venda (conta permanece aberta)
   const itensDesc = itens.map(i=>`${i.nome} x${i.qtd}`).join(', ');
   Store.mutateFiado(fiado => {
     const c = fiado.find(x=>x.id===clienteId);
@@ -835,13 +873,24 @@ function confirmarFiado(clienteId) {
     c.movimentacoes.unshift({
       id: Utils.generateId(), tipo: 'fiado',
       descricao: itensDesc || 'Compra PDV',
-      valor: total, itens,
+      valor: total,
+      itens: itens.map(i => ({
+        prodId: i.prodId, nome: i.nome,
+        preco: i.preco, qtd: i.qtd, label: i.label || 'UNID',
+      })),
       criadoEm: new Date().toISOString(),
     });
     if (c.limite>0 && c.saldo >= c.limite) c.bloqueado = true;
   });
+  // Sincroniza fiado com Firestore
+  if (window.CH?.SyncQueue) window.CH.SyncQueue.enqueue('salvar', 'fiado', Store.getFiado());
   EventBus.emit('fiado:lancado', { cliente: cliente.nome, valor: total, obs: 'Venda PDV' });
-  finalizarVenda(`Fiado — ${cliente.nome}`);
+  // Limpa o carrinho para o próximo cliente, mas NÃO cria venda finalizada
+  // A conta fica aberta em Fiado.html até o cliente pagar
+  CartService.clear();
+  renderCatalogo();
+  atualizarAlerta();
+  UIService.showToast(`Fiado lançado — ${cliente.nome}`, Utils.formatCurrency(total), 'warning');
 }
 
 /* ══ FINALIZAR VENDA ══ */
