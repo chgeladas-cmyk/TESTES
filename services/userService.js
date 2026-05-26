@@ -93,12 +93,28 @@
       const remote = await fb.ler('usuarios');
       if (!Array.isArray(remote) || remote.length === 0) return;
       const local  = _loadUsers();
-      const merged = [...remote];
-      for (const u of local) {
-        if (!merged.find(r => r.id === u.id)) merged.push(u);
-      }
+
+      // FIX [MÉDIO]: merge anterior sempre priorizava remoto — editarUsuario() local
+      // podia ser sobrescrito pelo snapshot do Firestore antes do push subir.
+      // Agora usa updatedAt para desempate: o mais recente ganha.
+      const remoteMap = new Map(remote.map(u => [u.id, u]));
+      const localMap  = new Map(local.map(u => [u.id, u]));
+
+      const merged = [];
+      const allIds = new Set([...remoteMap.keys(), ...localMap.keys()]);
+      allIds.forEach(id => {
+        const r = remoteMap.get(id);
+        const l = localMap.get(id);
+        if (r && l) {
+          // Ambos existem: usa o mais recente
+          merged.push((r.updatedAt || r.criadoEm || '') >= (l.updatedAt || l.criadoEm || '') ? r : l);
+        } else {
+          merged.push(r || l);
+        }
+      });
+
       _saveUsers(merged);
-      console.info('[UserService] ' + merged.length + ' usuario(s) carregado(s) do Firestore.');
+      console.info('[UserService] ' + merged.length + ' usuario(s) sincronizado(s).');
     } catch(e) {
       console.warn('[UserService] syncUsers falhou:', e.message);
     }

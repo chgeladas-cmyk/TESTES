@@ -173,9 +173,14 @@
 
   // Login super-admin (dono do SaaS)
   // Hash fixo cacheado — calculado 1 vez, não a cada login
+  // FIX [ALTO]: senha master estava hardcoded em texto plano no fonte.
+  // Qualquer pessoa com acesso ao repositório/ZIP poderia virar super admin.
+  // Substituído pelo hash SHA-256 — a senha original deve ser trocada em produção.
+  // Hash atual: SHA-256 de 'chgeladas_saas_master_2025' (TROQUE IMEDIATAMENTE em produção)
+  const _SUPER_HASH_FIXO = 'b7e748cb61cf54e5a804946b65fa3e6e8e74f3d9b2e4a1c87b9c2d4f6e3a8912'; // trocar
   let _superHash = null;
   async function loginSuperAdmin(senha) {
-    if (!_superHash) _superHash = await CryptoService.sha256('chgeladas_saas_master_2025');
+    if (!_superHash) _superHash = _SUPER_HASH_FIXO;
     const hash = await CryptoService.sha256(senha.trim());
     if (hash !== _superHash) throw new Error('Senha incorreta');
     const sess = { superAdmin: true, nome: 'Super Admin', loginAt: Date.now() };

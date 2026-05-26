@@ -40,7 +40,8 @@
   function _diasAtras(n) {
     const d = new Date();
     d.setDate(d.getDate() - n);
-    return d.toISOString().slice(0, 10);
+    // FIX [ALTO]: toISOString() retorna UTC — períodos de análise ficavam errados após 21h BRT
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   }
 
   function _mesAtual() {

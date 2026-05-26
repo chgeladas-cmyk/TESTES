@@ -58,6 +58,17 @@
 
   /** Registra receita de uma venda */
   function registrarReceita(venda) {
+    // FIX [ALTO]: sem idempotência, uma segunda chamada com o mesmo vendaId
+    // (retry de sync, reconexão Firebase, duplo evento) duplicava o lançamento.
+    if (venda?.id) {
+      const jaExiste = Store.getFinanceiro().some(
+        l => l.referencia === venda.id && l.tipo === 'receita'
+      );
+      if (jaExiste) {
+        console.info(`[FinanceiroService] registrarReceita ignorado — venda ${venda.id} já lançada.`);
+        return null;
+      }
+    }
     return _lancar({
       tipo:       'receita',
       categoria:  'venda',
@@ -75,6 +86,16 @@
 
   /** Registra estorno de uma venda cancelada */
   function registrarEstorno(venda) {
+    // FIX [MÉDIO]: idempotência — evita estorno duplo em retry
+    if (venda?.id) {
+      const jaExiste = Store.getFinanceiro().some(
+        l => l.referencia === venda.id && l.tipo === 'estorno'
+      );
+      if (jaExiste) {
+        console.info(`[FinanceiroService] registrarEstorno ignorado — venda ${venda.id} já estornada.`);
+        return null;
+      }
+    }
     return _lancar({
       tipo:       'estorno',
       categoria:  'cancelamento',
