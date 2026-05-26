@@ -322,7 +322,9 @@ function _iniciarRelogioGrande() {
     if (el) el.textContent = new Date().toLocaleTimeString('pt-BR');
   };
   tick();
-  setInterval(tick, 1000);
+  // FIX [MÉDIO]: setInterval sem clearInterval — vazamento de memória
+  const _pontoTickInterval = setInterval(tick, 1000);
+  window.addEventListener('beforeunload', () => clearInterval(_pontoTickInterval), { once: true });
 }
 
 function _atualizarData() {
@@ -773,7 +775,11 @@ function fecharCaixa() {
   // corrige o bug de virada de meia-noite onde todayISO() muda para o
   // dia seguinte mas vendas do turno ainda têm dataCurta do dia anterior.
   const abertoEm = new Date(_caixaAtual.abertoEm);
+  // FIX [MÉDIO]: filtro não excluía vendas pendentes/canceladas do total do caixa.
+  // Vendas 'pendente' (não aprovadas) e 'cancelada' não devem entrar no fechamento.
+  const _STATUS_CAIXA = new Set(['concluida','validada','aprovada']);
   const vendas   = Store.getVendas().filter(v => {
+    if (!_STATUS_CAIXA.has(v.status || 'concluida')) return false;
     const ts = v.criadoEm || v.timestamp || '';
     return ts ? new Date(ts) >= abertoEm : v.dataCurta === Utils.todayISO();
   });

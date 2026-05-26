@@ -289,7 +289,9 @@ function registrar() {
 
   _Store().mutateVendas(v => { v.unshift(venda); });
   if (window.CH && window.CH.SyncQueue) window.CH.SyncQueue.enqueue('salvar', 'vendas', [venda]);
-  if (window.CH && window.CH.FinanceiroService) window.CH.FinanceiroService.registrarReceita?.(venda);
+  // FIX [MÉDIO]: chamada direta + evento causavam dupla tentativa de registrarReceita.
+  // A idempotência no financeiroService já bloqueia a segunda, mas a chamada direta é desnecessária.
+  // O hook EventBus.on('venda:finalizada', registrarReceita) no financeiroService trata isso.
   _Bus() && _Bus().emit('venda:finalizada', venda);
 
   // Limpa form
