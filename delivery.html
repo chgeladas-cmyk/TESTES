@@ -599,6 +599,7 @@ async function avancarStatus(id, novoStatus) {
 
     // Fallback legado
     if (!venda) {
+      // FIX [CRÍTICO]: fallback sem campo status — venda invisível para KPIs
       venda = {
         id: Utils.generateId(), dataCurta: Utils.todayISO(),
         data: Utils.today(), hora: Utils.nowTime(),
@@ -607,6 +608,10 @@ async function avancarStatus(id, novoStatus) {
         subtotal: p.subtotal||0, desconto: 0,
         formaPgto: p.formaPgto||'Dinheiro',
         origem: 'DELIVERY', nomeCliente: p.cliente,
+        status: 'concluida',
+        operador: AuthService.getNome(),
+        role: AuthService.getRole(),
+        _fbSynced: false,
       };
       Store.mutateVendas(vendas => { vendas.unshift(venda); });
       Store.mutateEstoque(est => {
