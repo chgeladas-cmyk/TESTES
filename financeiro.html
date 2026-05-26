@@ -559,7 +559,7 @@ function renderHistorico() {
   el.innerHTML = [...vendas].slice(0,100).map(v => {
     const pgtoIcon = {Dinheiro:'💵',Pix:'📱',Débito:'💳',Crédito:'💳',Fiado:'🤝'}[v.formaPgto]||'💰';
     const lucroPos = (v.lucro||0) > 0;
-    const cancelada = v.status === 'CANCELADA';
+    const cancelada = (v.status || '').toLowerCase() === 'cancelada'; // FIX [MÉDIO]: normaliza para minúsculo (vendasService grava 'cancelada')
     return `<div class="venda-row ${cancelada?'opacity-50':''}">
       <div class="flex items-center justify-between">
         <div class="flex-1 min-w-0">

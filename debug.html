@@ -50,6 +50,15 @@ function card(title, content, cls) {
   return '<div class="card"><h3>' + title + '</h3><pre class="' + (cls||'') + '">' + content + '</pre></div>';
 }
 
+// FIX [MÉDIO]: debug.html expunha sessão, UID e fila de sync sem autenticação.
+// Adicionado guard que redireciona para index.html se não for admin.
+(function() {
+  try {
+    const s = JSON.parse(sessionStorage.getItem('CH_SESSION') || 'null');
+    if (!s || !['admin','adm'].includes(s.role)) { location.href = 'index.html'; }
+  } catch { location.href = 'index.html'; }
+})();
+
 function runAll() {
   const out = [];
 

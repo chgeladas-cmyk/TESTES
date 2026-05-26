@@ -274,7 +274,8 @@ function hoje() {
   const now = new Date();
   const offset = now.getTimezoneOffset();
   const local = new Date(now.getTime() - offset * 60000);
-  return local.toISOString().split('T')[0];
+  // FIX [MÉDIO]: toISOString() ainda pode retornar UTC — usa componentes locais direto
+  return `${local.getFullYear()}-${String(local.getMonth()+1).padStart(2,'0')}-${String(local.getDate()).padStart(2,'0')}`;
 }
 
 function nowISO() { return new Date().toISOString(); }

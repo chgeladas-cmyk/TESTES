@@ -604,7 +604,7 @@ function construirLogs() {
 
   /* 1 ── MAPEAR VENDAS */
   vendas.forEach(v => {
-    const cancelada = (v.status || '').toUpperCase() === 'CANCELADA';
+    const cancelada = (v.status || '').toLowerCase() === 'cancelada'; // FIX [MÉDIO]: normalizado para lowercase — status correto é 'cancelada'
     resultado.push({
       _id:        v.id,
       _tipo:      cancelada ? 'ESTORNO' : 'CRIACAO',
@@ -1101,7 +1101,8 @@ window.addEventListener('DOMContentLoaded', () => {
   const hoje = new Date();
   const umMesAtras = new Date(hoje);
   umMesAtras.setDate(hoje.getDate() - 30);
-  const fmtDate = d => d.toISOString().slice(0,10);
+  // FIX [ALTO]: toISOString() retorna UTC — após 21h BRT retorna data errada
+  const fmtDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   document.getElementById('fDataFim').value    = fmtDate(hoje);
   document.getElementById('fDataInicio').value = fmtDate(umMesAtras);
 
