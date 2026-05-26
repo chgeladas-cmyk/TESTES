@@ -350,7 +350,20 @@ function salvarEdicao(){const id=document.getElementById('meId').value;const nom
   })();
   UIService.closeModal('modalEditar');UIService.showToast('Produto atualizado!',nome,'success');}
 
-function excluirProduto(id){const p=Store.getEstoque().find(x=>x.id===id);if(!p||!confirm(`Excluir "${p.nome}"?`))return;Store.mutateEstoque(est=>{const idx=est.findIndex(x=>x.id===id);if(idx>=0)est.splice(idx,1);});UIService.showToast('Excluído',p.nome,'warning');}
+function excluirProduto(id){
+  const p=Store.getEstoque().find(x=>x.id===id);
+  if(!p||!confirm(`Excluir "${p.nome}"?`))return;
+  // FIX [MÉDIO]: hard delete (splice) dessincronizava com Firebase —
+  // o produto desaparecia do localStorage mas continuava no Firestore.
+  // No próximo onSnapshot, voltava do Firebase como se nunca tivesse sido excluído.
+  // Agora usa soft delete (ativo:false) igual ao EstoqueService.removerProduto().
+  if(window.CH?.EstoqueService){
+    window.CH.EstoqueService.removerProduto(id);
+  } else {
+    Store.mutateEstoque(est=>{const x=est.find(y=>y.id===id);if(x)x.ativo=false;});
+  }
+  UIService.showToast('Excluído',p.nome,'warning');
+}
 
 let _auditFiltro = 'todos';
 function setAuditFiltro(f){_auditFiltro=f;document.querySelectorAll('.audit-f-btn').forEach(b=>{const active=b.id==='auditF-'+f;b.className=`audit-f-btn px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${active?'bg-emerald-600/20 text-emerald-300 border border-emerald-500/25':'bg-slate-800 text-slate-500 border border-white/5'}`;});renderAudit();}

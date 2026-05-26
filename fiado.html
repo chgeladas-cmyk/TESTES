@@ -1086,11 +1086,21 @@ function confirmarRecebimento(forma) {
     if (c.saldo <= 0) c.bloqueado = false;
   });
   // Registra movimentação financeira separada
-  Store.mutateVendas(vendas => {
-    vendas.unshift({ id:Utils.generateId(), dataCurta:Utils.todayISO(), data:Utils.today(), hora:Utils.nowTime(),
-      criadoEm:new Date().toISOString(), itens:[], total:valor, subtotal:valor, desconto:0, lucro:0,
-      formaPgto:forma, origem:'FIADO', nomeCliente:_nomeCliente });
-  });
+  // FIX [CRÍTICO]: venda de quitação criada sem campo status.
+  // KPIs de faturamento filtram por status === 'concluida' — sem o campo, a quitação era invisível
+  // para relatórios e o financeiro não recebia o lançamento.
+  const vendaQuitacao = {
+    id: Utils.generateId(), dataCurta: Utils.todayISO(), data: Utils.today(), hora: Utils.nowTime(),
+    criadoEm: Utils.nowISO(), itens: [], total: valor, subtotal: valor, desconto: 0, lucro: 0,
+    formaPgto: forma, origem: 'FIADO', nomeCliente: _nomeCliente,
+    status: 'concluida', // FIX: campo obrigatório para KPIs e filtros
+    operador: window.CH.AuthService.getNome(),
+    role: window.CH.AuthService.getRole(),
+    _fbSynced: false,
+  };
+  Store.mutateVendas(vendas => { vendas.unshift(vendaQuitacao); });
+  // FIX: registra no financeiro (antes não registrava — caixa do dia ficava incorreto)
+  if (window.CH?.FinanceiroService) window.CH.FinanceiroService.registrarReceita(vendaQuitacao);
 
   UIService.closeModal('modalReceber');
   UIService.showToast(`Recebido ${Utils.formatCurrency(valor)}`, forma, 'success');
