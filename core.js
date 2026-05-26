@@ -614,9 +614,12 @@ const FirebaseService = (() => {
   const role = AuthService.getRole();
   if (!role || !_db || !_fb) return;
 
+  // FIX [MÉDIO]: 'permissoes' não estava em colsRT.
+  // Mudanças de permissão feitas pelo admin (ex: bloquear colaborador, trocar role)
+  // só chegavam nos outros dispositivos no próximo pull manual — nunca em tempo real.
   const colsRT = (role === 'admin' || role === 'adm')
-    ? ['estoque', 'config', 'fiado', 'comandas', 'pedidos', 'saidas', 'financeiro', 'usuarios']
-    : ['estoque', 'config', 'usuarios'];
+    ? ['estoque', 'config', 'fiado', 'comandas', 'pedidos', 'saidas', 'financeiro', 'usuarios', 'permissoes']
+    : ['estoque', 'config', 'usuarios', 'permissoes'];
 
   // ── Listener em tempo real para coleção vendas ────────────────────
   try {
@@ -1297,3 +1300,27 @@ console.info(
   'background:#1e293b;color:#60a5fa;font-weight:bold;padding:2px 6px;border-radius:4px',
   'color:#94a3b8'
 );
+
+// FIX [MÉDIO] — Etapa 10: Captura global de erros silenciosos.
+// Antes, erros não tratados em Promises e listeners desapareciam sem log.
+(function _globalErrorBoundary() {
+  const _auditFail = (tipo, msg, src) => {
+    try {
+      const A = window.CH && window.CH.AuditService;
+      if (A) A.registrar({ tipo, descricao: msg, origem: src || 'global', nivel: 'ERROR' });
+    } catch (_) {}
+  };
+
+  window.addEventListener('unhandledrejection', function(ev) {
+    var msg = (ev.reason && ev.reason.message) ? ev.reason.message : String(ev.reason || 'Promise rejeitada');
+    console.warn('[GlobalError] unhandledrejection:', msg);
+    _auditFail('ERRO_PROMISE', msg, ev.reason && ev.reason.stack ? ev.reason.stack.split('\n')[1] : '');
+  });
+
+  window.onerror = function(msg, src, linha, col, err) {
+    var descricao = msg + ' — ' + src + ':' + linha + ':' + col;
+    console.warn('[GlobalError] window.onerror:', descricao);
+    _auditFail('ERRO_JS', descricao, err && err.stack ? err.stack.split('\n')[1] : '');
+    return false;
+  };
+})();

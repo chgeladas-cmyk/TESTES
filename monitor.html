@@ -221,7 +221,9 @@
     _iniciarRelogio();
     _atualizarTudo();
     _registrarEventos();
-    setInterval(_atualizarTudo, 3000);
+    // FIX [MÉDIO]: setInterval sem clearInterval — vazamento de memória em sessões longas
+    const _monitorInterval = setInterval(_atualizarTudo, 3000);
+    window.addEventListener('beforeunload', () => clearInterval(_monitorInterval), { once: true });
     _atualizarOnline();
   }
 
@@ -430,7 +432,9 @@
         new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium' });
     }
     tick();
-    setInterval(tick, 1000);
+    // FIX [MÉDIO]: idem — clock interval sem limpeza
+    const _clockInterval = setInterval(tick, 1000);
+    window.addEventListener('beforeunload', () => clearInterval(_clockInterval), { once: true });
   }
 
 })();

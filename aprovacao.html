@@ -235,9 +235,11 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   renderizar();
-  setInterval(renderizar, 15000);
+  // FIX [MÉDIO]: setInterval sem clearInterval vazava memória em sessões longas.
+  // Cada navegação + volta criava um novo interval acumulado.
+  const _aprovacaoInterval = setInterval(renderizar, 15000);
+  window.addEventListener('beforeunload', () => clearInterval(_aprovacaoInterval), { once: true });
   EventBus.on('store:updated', () => {
-    // Ignora re-renders durante processamento em lote
     if (!window.CH.AprovacaoService?.isProcessandoLote()) renderizar();
   });
   // Eventos de fim de lote — renderiza uma única vez
