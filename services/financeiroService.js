@@ -182,14 +182,27 @@
   }
 
   function getResumoMes(ano = new Date().getFullYear(), mes = new Date().getMonth() + 1) {
-    const dataDe = `${ano}-${String(mes).padStart(2,'0')}-01`;
+    const dataDe  = `${ano}-${String(mes).padStart(2,'0')}-01`;
     const dataAte = `${ano}-${String(mes).padStart(2,'0')}-31`;
-    const caixa  = getCaixaDia(dataDe); // usa range
+    // FIX [ALTO]: 'caixa = getCaixaDia(dataDe)' estava calculando só o dia 1 do mês
+    // (getCaixaDia recebe UMA data, não um range) e o resultado nunca era usado — dead code.
+    // Removido. getLancamentos já faz o range correto com dataDe/dataAte.
     const lancamentos = getLancamentos({ dataDe, dataAte });
     const receitas = lancamentos.filter(l => l.tipo === 'receita').reduce((s, l) => s + l.valor, 0);
     const despesas = lancamentos.filter(l => l.tipo === 'despesa').reduce((s, l) => s + l.valor, 0);
+    const estornos = lancamentos.filter(l => l.tipo === 'estorno').reduce((s, l) => s + l.valor, 0);
     const lucro    = lancamentos.filter(l => l.tipo === 'receita').reduce((s, l) => s + (l.lucro || 0), 0);
-    return { mes: `${ano}-${String(mes).padStart(2,'0')}`, receitas, despesas, saldo: receitas - despesas, lucro };
+    const porForma = {};
+    lancamentos.filter(l => l.tipo === 'receita').forEach(l => {
+      const f = l.formaPgto || 'Outros';
+      porForma[f] = (porForma[f] || 0) + l.valor;
+    });
+    return {
+      mes: `${ano}-${String(mes).padStart(2,'0')}`,
+      receitas, despesas, estornos, lucro,
+      saldo: receitas - despesas - estornos,
+      porForma,
+    };
   }
 
   // Exportar CSV
