@@ -70,6 +70,31 @@
     if (venda.status !== 'pendente')
       throw new Error(`Venda está "${venda.status}", esperado "pendente"`);
 
+    // Valida disponibilidade real (estoqueAtual − reservas de outras vendas)
+    const EstoqueService = window.CH.EstoqueService;
+    if (EstoqueService) {
+      const reservas = EstoqueService.getReservas();
+      for (const item of venda.itens || []) {
+        const prod = EstoqueService.getProduto(item.prodId);
+        if (!prod) continue;
+        if (prod.controlaEstoque === false) continue; // produto sem controle de estoque (ex: cigarro)
+        const pack  = prod.packs?.find(pk => pk.label === item.label || (pk.qtd + 'x') === item.label);
+        const qtdUn = item.label === 'UNID' ? item.qtd : item.qtd * (pack?.qtd || 1);
+        // Disponível = atual − reservas de OUTRAS vendas (excluindo a própria)
+        const reservaOutros = Object.entries(reservas)
+          .filter(([vid]) => vid !== vendaId)
+          .reduce((s, [, r]) => s + (r[item.prodId] || 0), 0);
+        const disponivel = Math.max(0, (prod.estoqueAtual ?? 0) - reservaOutros);
+        if (disponivel < qtdUn) {
+          throw new Error(
+            `Estoque insuficiente para "${prod.nome}": ` +
+            `disponível ${disponivel} (${prod.estoqueAtual} físico − ${reservaOutros} reservados), ` +
+            `necessário ${qtdUn}`
+          );
+        }
+      }
+    }
+
     Store.mutateVendas(list => {
       const v = list.find(v => v.id === vendaId);
       if (v) {
@@ -105,6 +130,9 @@
       }
     });
 
+    // Libera a reserva de estoque para que outras vendas possam ser aprovadas
+    window.CH.EstoqueService?.liberarReserva?.(vendaId);
+
     _sync(vendaId);
     EventBus.emit('venda:rejeitada', { vendaId, motivo, operador: AuthService.getNome() });
     return true;
@@ -130,6 +158,9 @@
       }
     });
 
+    // Libera a reserva — a baixa real de estoque acontece logo abaixo
+    window.CH.EstoqueService?.liberarReserva?.(vendaId);
+
     // Só sincroniza individualmente se NÃO estiver em lote
     if (!_processandoLote) _sync(vendaId);
 
@@ -139,6 +170,8 @@
       for (const item of venda.itens || []) {
         try {
           const prod = EstoqueService.getProduto(item.prodId);
+          if (!prod) continue;
+          if (prod.controlaEstoque === false) continue; // produto sem controle de estoque (ex: cigarro)
           const pack = prod?.packs?.find(pk =>
             pk.label === item.label || (pk.qtd + 'x') === item.label
           );
@@ -155,6 +188,7 @@
         (venda.itens || []).forEach(item => {
           const prod = estoque.find(p => p.id === item.prodId);
           if (!prod) return;
+          if (prod.controlaEstoque === false) return; // produto sem controle de estoque (ex: cigarro)
           const qtdDesc = item.label === 'UNID'
             ? item.qtd
             : item.qtd * (prod.packs?.find(pk => pk.label === item.label)?.qtd || 1);
@@ -164,13 +198,14 @@
       });
     }
 
-    // 3. Financeiro
-    const FinanceiroService = window.CH.FinanceiroService;
-    if (FinanceiroService) FinanceiroService.registrarReceita(venda);
+    // FIX [CRÍTICO]: registrarReceita REMOVIDO daqui.
+    // financeiroService.js tem hook EventBus.on('venda:finalizada', registrarReceita)
+    // — chamada direta + evento causavam receita duplicada para cada venda validada.
+    // O lote (validarTodas) chama diretamente pois emite venda:finalizada:lote, não venda:finalizada.
 
-    // 4. Eventos — só emite se NÃO estiver em lote (evita N re-renders)
+    // 3. Eventos — só emite se NÃO estiver em lote (evita N re-renders)
     if (!_processandoLote) {
-      EventBus.emit('venda:finalizada', venda);
+      EventBus.emit('venda:finalizada', venda); // ← hook do financeiroService registra a receita aqui
       EventBus.emit('venda:validada', venda);
     }
 
@@ -252,6 +287,10 @@
       // ── Passo 2: sync único para todos ────────────────────────────
       _syncLote(ids);
 
+      // ── Libera todas as reservas (baixas de estoque acontecem a seguir) ──
+      const ES = window.CH.EstoqueService;
+      if (ES?.liberarReserva) ids.forEach(id => ES.liberarReserva(id));
+
       // ── Passo 3: efeitos colaterais (estoque + financeiro) ─────────
       // Processa sem emitir store:updated a cada item
       for (const venda of aprovadas) {
@@ -262,6 +301,8 @@
             for (const item of venda.itens || []) {
               try {
                 const prod = EstoqueService.getProduto(item.prodId);
+                if (!prod) continue;
+                if (prod.controlaEstoque === false) continue; // produto sem controle de estoque (ex: cigarro)
                 const pack = prod?.packs?.find(pk =>
                   pk.label === item.label || (pk.qtd + 'x') === item.label
                 );
@@ -278,6 +319,7 @@
               (venda.itens || []).forEach(item => {
                 const prod = estoque.find(p => p.id === item.prodId);
                 if (!prod) return;
+                if (prod.controlaEstoque === false) return; // produto sem controle de estoque (ex: cigarro)
                 const qtdDesc = item.label === 'UNID'
                   ? item.qtd
                   : item.qtd * (prod.packs?.find(pk => pk.label === item.label)?.qtd || 1);
