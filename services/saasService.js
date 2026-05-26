@@ -177,7 +177,7 @@
   // Qualquer pessoa com acesso ao repositório/ZIP poderia virar super admin.
   // Substituído pelo hash SHA-256 — a senha original deve ser trocada em produção.
   // Hash atual: SHA-256 de 'chgeladas_saas_master_2025' (TROQUE IMEDIATAMENTE em produção)
-  const _SUPER_HASH_FIXO = 'b7e748cb61cf54e5a804946b65fa3e6e8e74f3d9b2e4a1c87b9c2d4f6e3a8912'; // trocar
+  const _SUPER_HASH_FIXO = '17c6881a6a43da64a90dd31999d2bbf9cdb51b8538e6e54c48a598fbfb28317c'; // FIX: SHA-256 correto de 'chgeladas_saas_master_2025' — TROQUE EM PRODUÇÃO
   let _superHash = null;
   async function loginSuperAdmin(senha) {
     if (!_superHash) _superHash = _SUPER_HASH_FIXO;
