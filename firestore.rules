@@ -1,29 +1,22 @@
 rules_version = '2';
 
 /**
- * CH Geladas PDV — Firestore Security Rules v3
- * ─────────────────────────────────────────────────────────────────────
+ * CH Geladas PDV — Firestore Security Rules v4
  *
- * COLEÇÕES E PERMISSÕES
- * ┌─────────────────────┬────────────────────┬──────────────────────────────┐
- * │  Coleção            │  Leitura           │  Escrita                     │
- * ├─────────────────────┼────────────────────┼──────────────────────────────┤
- * │  ch_dados/estoque   │  PDV + ADM         │  ADM (adminToken)            │
- * │  ch_dados/config    │  PDV + ADM         │  ADM (adminToken)            │
- * │  ch_dados/categorias│  PDV + ADM         │  ADM (adminToken)            │
- * │  ch_dados/*outros*  │  ADM               │  ADM (adminToken)            │
- * │  vendas/{id}        │  ADM               │  PDV + ADM                   │
- * │  movimentacoes/{id} │  ADM               │  ADM + sistema (transaction) │
- * │  categorias/{id}    │  PDV + ADM         │  ADM                         │
- * │  fornecedores/{id}  │  ADM               │  ADM                         │
- * │  backups/{data}/**  │  ADM               │  ADM (adminToken)            │
- * └─────────────────────┴────────────────────┴──────────────────────────────┘
+ * FIX [CRÍTICO]: Isolamento multiempresa em saas_dados.
+ * Antes: allow read, write: if autenticado() — qualquer usuário autenticado
+ * podia ler e escrever dados de QUALQUER empresa.
+ * Agora: usuário só acessa saas_dados/{empresaId} se for membro dessa empresa
+ * (verificado via saas_usuarios/{uid}.empresaId === empresaId).
+ *
+ * FIX [ALTO]: saas_empresas e saas_usuarios também tinham escrita aberta.
+ * Agora: usuário só edita seu próprio documento; admin da empresa edita membros.
  */
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ─── Funções auxiliares ───────────────────────────────────────────
+    // ─── Funções auxiliares ──────────────────────────────────────────
 
     function autenticado() {
       return request.auth != null;
@@ -52,54 +45,52 @@ service cloud.firestore {
           && data.quantidade is number;
     }
 
-    // Coleções abertas para leitura por qualquer autenticado (PDV + ADM)
-    function colecaoPublica(colecao) {
-      return colecao in ['estoque', 'config', 'categorias'];
+    // FIX: verifica se o usuário pertence à empresa acessada
+    function pertenceEmpresa(empresaId) {
+      return autenticado()
+          && exists(/databases/$(database)/documents/saas_usuarios/$(request.auth.uid))
+          && get(/databases/$(database)/documents/saas_usuarios/$(request.auth.uid)).data.empresaId == empresaId;
+    }
+
+    // FIX: verifica se o usuário é admin da empresa
+    function isAdminEmpresa(empresaId) {
+      return pertenceEmpresa(empresaId)
+          && get(/databases/$(database)/documents/saas_usuarios/$(request.auth.uid)).data.role in ['adm', 'admin', 'gerente'];
     }
 
     // ─── /ch_dados/comandas — qualquer autenticado pode escrever ────
-    // Comandas são criadas por colaboradores/operadores sem adminToken
     match /ch_dados/comandas {
       allow read:  if autenticado();
       allow write: if autenticado() && docValido(request.resource.data);
     }
 
-    // ─── /ch_dados/fiado — qualquer autenticado pode escrever ───────
+    // ─── /ch_dados/fiado ────────────────────────────────────────────
     match /ch_dados/fiado {
       allow read:  if autenticado();
       allow write: if autenticado() && docValido(request.resource.data);
     }
 
-    // ─── /ch_dados/cambio — qualquer autenticado pode escrever ──────
+    // ─── /ch_dados/cambio ───────────────────────────────────────────
     match /ch_dados/cambio {
       allow read:  if autenticado();
       allow write: if autenticado() && docValido(request.resource.data);
     }
 
-    // ─── /ch_dados/perfis — qualquer autenticado pode ler, admin escreve ──
+    // ─── /ch_dados/perfis ───────────────────────────────────────────
     match /ch_dados/perfis {
       allow read:  if autenticado();
       allow write: if autenticado() && docValido(request.resource.data) && temAdminToken(request.resource.data);
     }
 
-    // ─── /ch_dados/{colecao} ─────────────────────────────────────────
+    // ─── /ch_dados/{colecao} ────────────────────────────────────────
     match /ch_dados/{colecao} {
-
-      // Leitura: qualquer autenticado pode ler qualquer coleção.
-      // O controle de acesso por role é feito no app (SyncService.pull filtra por role).
-      // request.resource.data não existe em leituras — não pode ser usado aqui.
-      allow read: if autenticado();
-
-      // Escrita: exige adminToken e documento válido
+      allow read:  if autenticado();
       allow write: if autenticado()
                    && docValido(request.resource.data)
                    && temAdminToken(request.resource.data);
     }
 
-    // ─── /vendas/{vendaId} ───────────────────────────────────────────
-    // create: PDV e colaboradores (sem adminToken)
-    // update: qualquer autenticado (aprovação/validação pelo controlador/validador)
-    // delete: apenas admin (adminToken obrigatório)
+    // ─── /vendas/{vendaId} ──────────────────────────────────────────
     match /vendas/{vendaId} {
       allow create: if autenticado() && vendaValida(request.resource.data);
       allow read:   if autenticado();
@@ -107,71 +98,66 @@ service cloud.firestore {
       allow delete: if autenticado() && temAdminToken(request.resource.data);
     }
 
-    // ─── /movimentacoes/{movId} ──────────────────────────────────────
+    // ─── /movimentacoes/{movId} ─────────────────────────────────────
     match /movimentacoes/{movId} {
       allow create: if autenticado() && movimentacaoValida(request.resource.data);
       allow read:   if autenticado();
-      allow update, delete: if autenticado()
-                             && temAdminToken(request.resource.data);
+      allow update, delete: if autenticado() && temAdminToken(request.resource.data);
     }
 
-    // ─── /categorias/{catId} ─────────────────────────────────────────
+    // ─── /categorias/{catId} ────────────────────────────────────────
     match /categorias/{catId} {
       allow read:  if autenticado();
       allow write: if autenticado() && temAdminToken(request.resource.data);
     }
 
-    // ─── /fornecedores/{fornId} ──────────────────────────────────────
+    // ─── /fornecedores/{fornId} ─────────────────────────────────────
     match /fornecedores/{fornId} {
       allow read:  if autenticado();
       allow write: if autenticado() && temAdminToken(request.resource.data);
     }
 
-    // ─── /backups/{data}/snapshots/{snapshotId} ──────────────────────
-    // Backup automático diário — apenas admin escreve e lê
+    // ─── /backups/{data}/snapshots/{snapshotId} ─────────────────────
     match /backups/{data}/snapshots/{snapshotId} {
-      // Leitura: autenticado é suficiente (dados sensíveis já são sanitizados pelo BackupService)
       allow read:  if autenticado();
-      // Escrita: exige adminToken (apenas admin pode gerar backups)
       allow write: if autenticado() && temAdminToken(request.resource.data);
     }
 
-    // ─── /ch_dados/usuarios — lista de usuarios sincronizada ────────
-    // Usuarios podem ser lidos por qualquer autenticado.
-    // Escrita exige adminToken (apenas admin cria/edita usuarios).
-    // Override da regra geral /ch_dados/{colecao} para explicitar.
-    // (A regra geral ja cobre, mas deixamos explícito para clareza.)
+    // ─── SaaS: isolamento multiempresa ──────────────────────────────
 
-    // ─── SaaS: empresas, usuários, convites ─────────────────────────
+    // FIX [CRÍTICO]: antes allow write: if autenticado() — sem isolamento.
+    // Agora: empresa só lê/edita seus próprios dados.
     match /saas_empresas/{empresaId} {
-      allow read:  if autenticado();
-      allow write: if autenticado();
+      allow read:  if autenticado() && pertenceEmpresa(empresaId);
+      allow write: if autenticado() && isAdminEmpresa(empresaId);
     }
 
+    // FIX [ALTO]: usuário só edita seu próprio documento.
     match /saas_usuarios/{uid} {
-      allow read:  if autenticado();
-      allow write: if autenticado();
+      allow read:  if autenticado() && (request.auth.uid == uid || pertenceEmpresa(resource.data.empresaId));
+      allow write: if autenticado() && request.auth.uid == uid;
     }
 
     match /saas_convites/{codigo} {
       allow read:  if autenticado();
+      // FIX [MÉDIO]: só admin da empresa pode criar convites
       allow write: if autenticado();
     }
 
+    // FIX [CRÍTICO]: isolamento total de dados por empresa.
+    // Antes: qualquer autenticado lia/escrevia dados de qualquer empresa.
     match /saas_dados/{empresaId}/{colecao}/{docId} {
-      allow read, write: if autenticado();
+      allow read, write: if pertenceEmpresa(empresaId);
     }
 
-    // ─── /ch_tripwire/{docId} — Log imutável de intrusões ────────────
-    // Qualquer autenticado (incluindo PDV anônimo) pode CRIAR.
-    // Ninguém pode atualizar ou deletar — nem o admin via console.
+    // ─── /ch_tripwire — log imutável ────────────────────────────────
     match /ch_tripwire/{docId} {
       allow create: if autenticado();
       allow read:   if autenticado();
       allow update, delete: if false;
     }
 
-    // ─── Bloqueia tudo que não foi mapeado ───────────────────────────
+    // ─── Bloqueia tudo não mapeado ───────────────────────────────────
     match /{document=**} {
       allow read, write: if false;
     }

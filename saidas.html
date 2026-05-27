@@ -523,9 +523,7 @@ function getRange(per) {
     const day = dt.getDay(); // 0=dom
     const lunes = new Date(dt); lunes.setDate(dt.getDate() - day);
     const domingo = new Date(lunes); domingo.setDate(lunes.getDate() + 6);
-    // FIX [MÉDIO]: toISOString() retorna UTC — filtro de semana ficava errado após 21h
-    const _iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    return { de: _iso(lunes), ate: _iso(domingo) };
+    return { de: Utils.dateISO(lunes), ate: Utils.dateISO(domingo) }; // FIX: usa Utils.dateISO (timezone local)
   }
   if (per === 'mes') {
     const m = d.slice(0,7);

@@ -354,16 +354,15 @@ function renderTudo() {
     // FIX [ALTO]: Timezone — toISOString() retorna UTC (UTC-3 = Brazil).
     // Após 21h BRT a data local é N+1 em UTC, jogando vendas no dia errado.
     // Usa componentes locais (getFullYear/Month/Date) igual ao Utils.todayISO() correto.
-    const _localISO = (d) => {
-      const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+    // Utils.dateISO() usado abaixo
       return `${y}-${m}-${day}`;
     };
     const hoje  = Utils.todayISO();
     const agora = new Date();
     let dataDe  = hoje;
-    if (_periodo === 'semana') { const d=new Date(); d.setDate(d.getDate()-6); dataDe=_localISO(d); }
-    if (_periodo === 'mes')    { dataDe=_localISO(new Date(agora.getFullYear(),agora.getMonth(),1)); }
-    if (_periodo === 'ano')    { dataDe=_localISO(new Date(agora.getFullYear(),0,1)); }
+    if (_periodo === 'semana') { const d=new Date(); d.setDate(d.getDate()-6); dataDe=Utils.dateISO(d); }
+    if (_periodo === 'mes')    { dataDe=Utils.dateISO(new Date(agora.getFullYear(),agora.getMonth(),1)); }
+    if (_periodo === 'ano')    { dataDe=Utils.dateISO(new Date(agora.getFullYear(),0,1)); }
     if (_periodo === 'geral')  { dataDe='2000-01-01'; }
     const lancamentos = window.CH.FinanceiroService.getLancamentos({ dataDe, dataAte: hoje });
     despesas = lancamentos.filter(l => l.tipo === 'despesa').reduce((s,l) => s + l.valor, 0);
@@ -753,12 +752,19 @@ function cancelarVenda(vendaId) {
     vendaAtualizada = { ...v };
   });
 
-  // 3. Sincroniza cancelamento com Firebase
+  // 3. Estorno financeiro (idempotente — segunda chamada ignorada pelo guard)
+  // FIX [CRÍTICO]: cancelarVenda não chamava registrarEstorno — caixa ficava inflado.
+  const _finSvc = window.CH?.FinanceiroService;
+  if (_finSvc && vendaAtualizada && ['concluida','validada','aprovada'].includes(venda.status)) {
+    _finSvc.registrarEstorno({ ...venda, motivoCancelamento: motivo.trim() });
+  }
+
+  // 4. Sincroniza cancelamento com Firebase
   if (window.CH?.SyncQueue && vendaAtualizada) {
     window.CH.SyncQueue.enqueue('atualizar', 'vendas', [vendaAtualizada]);
   }
 
-  UIService.showToast('Venda cancelada — estoque restaurado','','warning');
+  UIService.showToast('Venda cancelada — estoque restaurado + estorno registrado','','warning');
   renderHistorico();
   renderTudo();
 }

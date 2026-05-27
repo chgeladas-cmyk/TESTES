@@ -110,6 +110,9 @@ const Utils = Object.freeze({
   }).format(Number(v) || 0);
   },
   todayISO()   { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; },
+  // FIX [BAIXO]: _localISO estava duplicado em 6 arquivos HTML.
+  // Centralizado aqui — todos os módulos usam Utils.dateISO(d).
+  dateISO(d)   { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; },
   today()      { return new Date().toLocaleDateString('pt-BR'); },
   nowTime()    { return new Date().toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }); },
   nowFull()    { return new Date().toLocaleString('pt-BR'); },
