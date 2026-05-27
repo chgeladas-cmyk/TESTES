@@ -211,9 +211,7 @@
   function getResumoSemana() {
     const hoje = new Date(), dom = new Date(hoje);
     dom.setDate(hoje.getDate() - hoje.getDay());
-    // FIX [ALTO]: toISOString() retorna UTC — após 21h BRT domingo viraria segunda
-    const _localISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    const vendas = getVendasPeriodo(_localISO(dom), Utils.todayISO())
+    const vendas = getVendasPeriodo(Utils.dateISO(dom), Utils.todayISO()) // FIX: Utils.dateISO (timezone local)
       .filter(v => ['concluida', 'validada'].includes(v.status));
     return {
       quantidade: vendas.length,
@@ -225,9 +223,7 @@
   function getProdutosMaisVendidos(limite = 10, periodo = 30) {
     const dm = new Date();
     dm.setDate(dm.getDate() - periodo);
-    // FIX [ALTO]: toISOString() retorna UTC — usa componentes locais
-    const _localISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    const vendas = getVendasPeriodo(_localISO(dm), Utils.todayISO())
+    const vendas = getVendasPeriodo(Utils.dateISO(dm), Utils.todayISO()) // FIX: Utils.dateISO (timezone local)
       .filter(v => ['concluida', 'validada'].includes(v.status));
     const mapa = {};
     vendas.forEach(venda => {
