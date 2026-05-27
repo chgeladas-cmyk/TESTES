@@ -420,20 +420,37 @@ function _atualizarLotebar() {
 }
 
 // ── AÇÕES INDIVIDUAIS ─────────────────────────────────────────────
+// FIX [MÉDIO - UX]: botões individuais aprovar/validar sem guard de duplo clique.
+// Duplo clique rápido podia chamar a mesma ação duas vezes.
+const _processandoAcao = new Set();
+
 async function aprovar(id) {
+  if (_processandoAcao.has(id)) return;
+  _processandoAcao.add(id);
+  // Desabilita o botão visualmente
+  const btn = document.querySelector(`[data-id="${id}"].btn-aprovar`);
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
   try {
     await window.CH.AprovacaoService.aprovarVenda(id);
     toast('Venda aprovada! Aguarda validação.', 'ok');
     renderizar();
-  } catch(e) { toast(e.message, 'err'); }
+  } catch(e) { toast(e.message, 'err'); } finally {
+    _processandoAcao.delete(id);
+  }
 }
 
 async function validar(id) {
+  if (_processandoAcao.has(id)) return;
+  _processandoAcao.add(id);
+  const btn = document.querySelector(`[data-id="${id}"].btn-validar`);
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
   try {
     await window.CH.AprovacaoService.validarVenda(id);
     toast('Venda validada! Estoque e financeiro atualizados.', 'ok');
     renderizar();
-  } catch(e) { toast(e.message, 'err'); }
+  } catch(e) { toast(e.message, 'err'); } finally {
+    _processandoAcao.delete(id);
+  }
 }
 
 function abrirRejeitar(id) {

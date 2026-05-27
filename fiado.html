@@ -170,7 +170,7 @@ body.is-admin .adm-only{display:flex!important;}
     <!-- Busca -->
     <div class="relative mb-3">
       <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none"></i>
-      <input type="text" id="buscaCliente" oninput="renderClientes()" class="inp !pl-9 !py-2.5" placeholder="Buscar cliente...">
+      <input type="text" id="buscaCliente" oninput="clearTimeout(this._t);this._t=setTimeout(renderClientes,150)" class="inp !pl-9 !py-2.5" placeholder="Buscar cliente...">
     </div>
 
     <!-- Lista de clientes -->

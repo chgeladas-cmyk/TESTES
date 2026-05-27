@@ -305,7 +305,7 @@ body.is-admin .adm-flex{display:flex!important;}
     <p class="text-[9px] text-slate-500 font-bold uppercase mb-3">Selecione o cliente</p>
     <div class="relative mb-3">
       <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none"></i>
-      <input type="text" id="buscaClienteFiado" oninput="renderClientesFiado()" class="inp !pl-9 !py-2.5" placeholder="Buscar cliente...">
+      <input type="text" id="buscaClienteFiado" oninput="clearTimeout(this._t);this._t=setTimeout(renderClientesFiado,150)" class="inp !pl-9 !py-2.5" placeholder="Buscar cliente...">
     </div>
     <div id="listaClientesFiado" class="space-y-2 max-h-72 overflow-y-auto scroll"></div>
   </div>
@@ -1104,29 +1104,57 @@ function abrirRelatorio() {
 function cancelarVendaHistorico(vendaId) {
   const venda = Store.getVendas().find(v=>v.id===vendaId);
   if (!venda) return;
-  if (!confirm(`Cancelar venda de ${Utils.formatCurrency(venda.total)}?`)) return;
-  Store.mutateEstoque(estoque => {
-    (venda.itens||[]).forEach(item => {
-      const prod = estoque.find(p=>p.id===item.prodId);
-      if (!prod) return;
-      const pack=prod?.packs?.find(pk=>pk.label===item.label||(pk.qtd+'x')===item.label);
-      const qtdDev=item.label==='UNID'?item.qtd:item.qtd*(pack?.qtd||1);
-      prod.qtdUn = (prod.qtdUn||0)+qtdDev;
-    });
-  });
-  // Restaurar estoque no Firebase (Transaction)
+  // FIX [CRÍTICO]: cancelamento anterior fazia hard delete (splice) da venda.
+  // Consequências: (1) perda de rastreabilidade — auditoria perdia o registro;
+  // (2) sem registrarEstorno no financeiro — caixa ficava inflado;
+  // (3) Firebase recebia 'deletar' mas histórico local sumia.
+  // Agora usa soft cancel: status='cancelada' + estorno financeiro.
+  const motivo = prompt('Motivo do cancelamento (obrigatório):','');
+  if (motivo === null) return; // usuário cancelou o prompt
+  if (!motivo.trim()) { UIService.showToast('Informe o motivo','','error'); return; }
+
+  // 1. Reverte estoque via EstoqueService (Transaction + audit)
   const _esSvc = window.CH?.EstoqueService;
   if (_esSvc) {
     _esSvc.cancelarVenda(vendaId, venda.itens || []).catch(e =>
       console.warn('[cancelarHistorico] estoque Firebase falhou:', e.message)
     );
+  } else {
+    Store.mutateEstoque(estoque => {
+      (venda.itens||[]).forEach(item => {
+        const prod = estoque.find(p=>p.id===item.prodId);
+        if (!prod) return;
+        const pack=prod?.packs?.find(pk=>pk.label===item.label||(pk.qtd+'x')===item.label);
+        const qtdDev=item.label==='UNID'?item.qtd:item.qtd*(pack?.qtd||1);
+        prod.qtdUn = (prod.qtdUn||0)+qtdDev;
+      });
+    });
   }
-  Store.mutateVendas(vendas => { const idx=vendas.findIndex(v=>v.id===vendaId); if(idx>=0) vendas.splice(idx,1); });
-  // Sincroniza exclusão com Firebase
-  if (window.CH.SyncQueue) {
-    window.CH.SyncQueue.enqueue('deletar', 'vendas', [vendaId]);
+
+  // 2. Soft cancel — preserva rastreabilidade
+  Store.mutateVendas(vendas => {
+    const v = vendas.find(x=>x.id===vendaId);
+    if (!v) return;
+    v.status = 'cancelada';
+    v.motivoCancelamento = motivo.trim();
+    v.canceladoEm = new Date().toISOString();
+    v.canceladoPor = AuthService.getNome();
+    v._fbSynced = false;
+  });
+
+  // 3. Estorno no financeiro (idempotente — segunda chamada ignorada)
+  const _finSvc = window.CH?.FinanceiroService;
+  if (_finSvc && ['concluida','validada','aprovada'].includes(venda.status)) {
+    _finSvc.registrarEstorno({ ...venda, motivoCancelamento: motivo.trim() });
   }
-  UIService.showToast('Venda cancelada','','warning');
+
+  // 4. Sync Firebase (atualizar, não deletar — mantém histórico)
+  if (window.CH?.SyncQueue) {
+    const vendaAtual = Store.getVendas().find(v=>v.id===vendaId);
+    if (vendaAtual) window.CH.SyncQueue.enqueue('atualizar', 'vendas', vendaAtual);
+  }
+
+  UIService.showToast('Venda cancelada','Estoque revertido + estorno registrado','warning');
   abrirRelatorio();
 }
 
