@@ -422,15 +422,25 @@
     const FinSvc = window.CH?.FinanceiroService;
     if (FinSvc?.getFluxoCaixa) return FinSvc.getFluxoCaixa(de, ate);
 
-    // Fallback: calcula direto das vendas
+    // FIX [MÉDIO]: fallback só contava receitas — estornos e cancelamentos ignorados.
+    // Fluxo de caixa com cancelamentos ficava inflado.
     const vendas = _vendasPeriodo(de, ate);
+    const canceladas = (Store.getVendas() || []).filter(v =>
+      v.status === 'cancelada' && v.dataCurta >= de && v.dataCurta <= ate
+    );
     const dias = {};
     vendas.forEach(v => {
-      if (!dias[v.dataCurta]) dias[v.dataCurta] = { data: v.dataCurta, receitas: 0, qtd: 0 };
+      if (!dias[v.dataCurta]) dias[v.dataCurta] = { data: v.dataCurta, receitas: 0, estornos: 0, saldo: 0, qtd: 0 };
       dias[v.dataCurta].receitas += v.total || 0;
       dias[v.dataCurta].qtd++;
     });
-    return Object.values(dias).sort((a, b) => a.data.localeCompare(b.data));
+    canceladas.forEach(v => {
+      if (!dias[v.dataCurta]) dias[v.dataCurta] = { data: v.dataCurta, receitas: 0, estornos: 0, saldo: 0, qtd: 0 };
+      dias[v.dataCurta].estornos += v.total || 0;
+    });
+    const result = Object.values(dias).sort((a, b) => a.data.localeCompare(b.data));
+    result.forEach(d => { d.saldo = d.receitas - d.estornos; });
+    return result;
   }
 
   // ══════════════════════════════════════════════════════════════════
