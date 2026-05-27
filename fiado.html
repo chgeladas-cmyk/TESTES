@@ -481,7 +481,8 @@ function init() {
     atualizarKpis();
     renderClientes();
   }
-  EventBus.on('store:updated', () => { atualizarKpis(); if (_clienteAtualId) renderDetalhe(); else renderClientes(); });
+  let _fiadoRT=null;
+  EventBus.on('store:updated', () => { clearTimeout(_fiadoRT); _fiadoRT=setTimeout(()=>{ atualizarKpis(); if (_clienteAtualId) renderDetalhe(); else renderClientes(); },80); }); // FIX [Perf]: throttle
 }
 
 /* ═══════════ VISTAS ═══════════ */

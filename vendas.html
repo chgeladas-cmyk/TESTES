@@ -472,13 +472,19 @@ function init() {
   renderCatalogo();
   renderCart();
   atualizarAlerta();
+  // FIX [MÉDIO - Perf]: throttle em store:updated — Firebase onSnapshot pode disparar
+  // múltiplos eventos em sequência rápida (sync de vários docs). Sem throttle,
+  // renderCatalogo() e renderCart() rodavam N vezes consecutivas bloqueando a UI.
+  let _vendasRenderTimer = null;
   EventBus.on('store:updated', (col) => {
-    renderCatalogo(); renderCart(); atualizarAlerta();
-    // Re-renderiza histórico se estiver visível
-    if (col === 'vendas') {
-      const relatorio = document.getElementById('secRelatorio');
-      if (relatorio && !relatorio.classList.contains('hidden')) abrirRelatorio();
-    }
+    clearTimeout(_vendasRenderTimer);
+    _vendasRenderTimer = setTimeout(() => {
+      renderCatalogo(); renderCart(); atualizarAlerta();
+      if (col === 'vendas') {
+        const relatorio = document.getElementById('secRelatorio');
+        if (relatorio && !relatorio.classList.contains('hidden')) abrirRelatorio();
+      }
+    }, 80); // 80ms — imperceptível ao usuário, elimina renders em cascata
   });
   EventBus.on('cart:updated', renderCart);
 }

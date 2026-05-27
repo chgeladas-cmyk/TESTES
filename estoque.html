@@ -295,7 +295,7 @@ async function doLogin(){const pin=document.getElementById('loginSenha').value.t
 document.getElementById('loginSenha').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
 function logout(){if(confirm('Encerrar sessão?')){AuthService.logout();location.reload();}}
 
-function init(){UIService.startClock('clock');renderFiltros();renderLista();renderKPIs();renderAudit();EventBus.on('store:updated',()=>{renderFiltros();renderLista();renderKPIs();renderAudit();});}
+function init(){UIService.startClock('clock');renderFiltros();renderLista();renderKPIs();renderAudit();let _estoqueRT=null; EventBus.on('store:updated',()=>{clearTimeout(_estoqueRT);_estoqueRT=setTimeout(()=>{renderFiltros();renderLista();renderKPIs();renderAudit();},80);});}
 
 function switchTab(id){['lista','form','audit','cats'].forEach(t=>{const btn=document.getElementById('tb'+t.charAt(0).toUpperCase()+t.slice(1));const pane=document.getElementById('tab-'+t);if(btn)btn.classList.toggle('active',t===id);if(pane)pane.classList.toggle('active',t===id);});if(id==='cats')renderCatsGerenciar();}
 

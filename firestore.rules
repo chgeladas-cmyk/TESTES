@@ -132,10 +132,16 @@ service cloud.firestore {
       allow write: if autenticado() && isAdminEmpresa(empresaId);
     }
 
-    // FIX [ALTO]: usuário só edita seu próprio documento.
+    // FIX [ALTO]: usuário edita o próprio documento.
+    // FIX [MÉDIO]: admin da empresa pode editar usuários da mesma empresa
+    // (necessário para trocar role, desativar colaborador, etc).
     match /saas_usuarios/{uid} {
       allow read:  if autenticado() && (request.auth.uid == uid || pertenceEmpresa(resource.data.empresaId));
-      allow write: if autenticado() && request.auth.uid == uid;
+      allow write: if autenticado() && (
+        request.auth.uid == uid ||
+        (resource.data.empresaId == request.resource.data.empresaId &&
+         isAdminEmpresa(resource.data.empresaId))
+      );
     }
 
     match /saas_convites/{codigo} {

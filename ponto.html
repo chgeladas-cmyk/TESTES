@@ -854,7 +854,10 @@ function atualizarUICaixa() {
     if (btnFechar) btnFechar.disabled = false;
     // Resumo
     const hoje     = Utils.todayISO();
-    const vendas   = Store.getVendas().filter(v=>v.dataCurta===hoje);
+    // FIX [MÉDIO]: mesma correção de fecharCaixa — vendas pendentes/canceladas
+    // não devem aparecer no resumo do caixa aberto.
+    const _STATUS_CAIXA_UI = new Set(['concluida','validada','aprovada']);
+    const vendas   = Store.getVendas().filter(v=>v.dataCurta===hoje && _STATUS_CAIXA_UI.has(v.status||'concluida'));
     const dinheiro = vendas.filter(v=>(v.formaPgto||'').toLowerCase().includes('dinheiro')).reduce((s,v)=>s+v.total,0);
     const total    = (_caixaAtual.trocoInicial||0) + dinheiro;
     if (resumo) resumo.classList.remove('hidden');

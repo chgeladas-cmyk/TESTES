@@ -239,8 +239,10 @@ window.addEventListener('DOMContentLoaded', () => {
   // Cada navegação + volta criava um novo interval acumulado.
   const _aprovacaoInterval = setInterval(renderizar, 15000);
   window.addEventListener('beforeunload', () => clearInterval(_aprovacaoInterval), { once: true });
+  let _aprovRT=null;
   EventBus.on('store:updated', () => {
-    if (!window.CH.AprovacaoService?.isProcessandoLote()) renderizar();
+    clearTimeout(_aprovRT);
+    _aprovRT=setTimeout(()=>{ if (!window.CH.AprovacaoService?.isProcessandoLote()) renderizar(); },80); // FIX [Perf]: throttle
   });
   // Eventos de fim de lote — renderiza uma única vez
   EventBus.on('venda:aprovada:lote',  renderizar);
