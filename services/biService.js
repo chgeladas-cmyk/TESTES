@@ -28,8 +28,10 @@
 
   function _vendasPeriodo(de, ate) {
     const vendas = Store.getVendas() || [];
-    // 'aprovada' também conta — é concluída aguardando validação
-    const STATUS_VALIDOS = ['concluida', 'validada', 'aprovada'];
+    // FIX [MÉDIO]: 'aprovada' removida dos KPIs financeiros.
+    // Status 'aprovada' = estoque ainda não baixado, receita não confirmada.
+    // Incluir 'aprovada' inflava receita, CMV e ticket médio com vendas não finalizadas.
+    const STATUS_VALIDOS = ['concluida', 'validada'];
     return vendas.filter(v =>
       STATUS_VALIDOS.includes(v.status || 'concluida') &&
       (!de  || v.dataCurta >= de) &&
@@ -492,8 +494,10 @@
     const totalMes   = vendasMes.reduce((s, v) => s + (v.total || 0), 0);
     const lucroMes   = vendasMes.reduce((s, v) => s + (v.lucro  || 0), 0);
 
-    // CMV e margem (30 dias)
-    const cmv30 = getCMV(de30, hoje);
+    // FIX [MÉDIO]: CMV do mês deve usar o período do mês, não os últimos 30 dias.
+    // Antes, mes.cmv e mes.margem usavam cmv30 (30d ≠ mês atual — no dia 5 do mês, 30d inclui mês anterior).
+    const cmvMes = getCMV(mes_de, mes_ate);
+    const cmv30  = getCMV(de30, hoje); // mantido só para alertas de qualidade de dados
 
     // ── Qualidade dos dados de custo ──────────────────────────────
     const todasVendas30 = _vendasPeriodo(de30, hoje);
@@ -536,8 +540,8 @@
         vendas:  vendasMes.length,
         receita: totalMes,
         lucro:   lucroMes,
-        cmv:     cmv30.cmv,
-        margem:  cmv30.margemPercentual,
+        cmv:     cmvMes.cmv,       // FIX: usa período do mês, não 30 dias
+        margem:  cmvMes.margemPercentual,
       },
       comparativo,
       abc: {
