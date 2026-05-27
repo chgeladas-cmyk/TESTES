@@ -140,8 +140,14 @@ service cloud.firestore {
 
     match /saas_convites/{codigo} {
       allow read:  if autenticado();
-      // FIX [MÉDIO]: só admin da empresa pode criar convites
-      allow write: if autenticado();
+      // FIX [MÉDIO]: convite só pode ser criado/deletado por admin da empresa dona do convite.
+      // Antes qualquer autenticado podia criar convites para qualquer empresa.
+      // O empresaId do convite é verificado via resource.data.empresaId.
+      allow create: if autenticado()
+                    && request.resource.data.keys().hasAll(['codigo','empresaId','criadoEm'])
+                    && isAdminEmpresa(request.resource.data.empresaId);
+      allow delete: if autenticado() && isAdminEmpresa(resource.data.empresaId);
+      allow update: if false; // convites são imutáveis após criação
     }
 
     // FIX [CRÍTICO]: isolamento total de dados por empresa.

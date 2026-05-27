@@ -422,7 +422,7 @@ function renderGrafico(vendas) {
     const dias = {};
     for (let i = 6; i >= 0; i--) {
       const d = new Date(); d.setDate(d.getDate()-i);
-      const iso = d.toISOString().slice(0,10);
+      const iso = Utils.dateISO(d); // FIX: timezone local
       const fmt = d.toLocaleDateString('pt-BR',{weekday:'short'}).slice(0,3);
       dias[iso] = { label: fmt, valor: 0 };
     }
@@ -747,7 +747,7 @@ function cancelarVenda(vendaId) {
     v.motivoCancelamento = motivo.trim();
     // FIX [MÉDIO]: não zerar total/lucro — histórico de faturamento fica correto;
     // o estorno no financeiro já desfaz o efeito monetário.
-    v.canceladoEm  = new Date(new Date().getTime() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);
+    v.canceladoEm  = Utils.nowISO ? Utils.nowISO() : new Date().toISOString(); // FIX: usa Utils.nowISO
     v.canceladoPor = AuthService.getNome();
     vendaAtualizada = { ...v };
   });

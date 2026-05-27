@@ -1102,7 +1102,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const umMesAtras = new Date(hoje);
   umMesAtras.setDate(hoje.getDate() - 30);
   // FIX [ALTO]: toISOString() retorna UTC — após 21h BRT retorna data errada
-  const fmtDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  const fmtDate = d => Utils.dateISO(d); // FIX: centralizado em Utils.dateISO (não mais duplicado)
   document.getElementById('fDataFim').value    = fmtDate(hoje);
   document.getElementById('fDataInicio').value = fmtDate(umMesAtras);
 
