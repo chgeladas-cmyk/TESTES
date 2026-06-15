@@ -156,6 +156,7 @@ body { background:#04060d; color:#f1f5f9; font-family:'DM Sans',sans-serif; min-
 <script src="./services/backupService.js"></script>
 <script src="./services/estoqueService.js"></script>
 <script src="./services/financeiroService.js"></script>
+<!-- integrityService.js removido -->
 <script src="./services/vendasService.js"></script>
 <script>
 'use strict';
@@ -289,9 +290,7 @@ function registrar() {
 
   _Store().mutateVendas(v => { v.unshift(venda); });
   if (window.CH && window.CH.SyncQueue) window.CH.SyncQueue.enqueue('salvar', 'vendas', [venda]);
-  // FIX [MÉDIO]: chamada direta + evento causavam dupla tentativa de registrarReceita.
-  // A idempotência no financeiroService já bloqueia a segunda, mas a chamada direta é desnecessária.
-  // O hook EventBus.on('venda:finalizada', registrarReceita) no financeiroService trata isso.
+  if (window.CH && window.CH.FinanceiroService) window.CH.FinanceiroService.registrarReceita?.(venda);
   _Bus() && _Bus().emit('venda:finalizada', venda);
 
   // Limpa form
@@ -312,7 +311,7 @@ function renderHistorico() {
   if (!window.CH || !window.CH.Store) return;
   const hoje   = _Utils().todayISO();
   const vendas = (_Store().getVendas() || [])
-    .filter(v => v._avulsa && v.dataCurta === hoje)
+    .filter(v => v._avulsa && v.dataCurta === hoje && v.status !== 'cancelada')
     .slice(0, 30);
 
   const el = document.getElementById('historico');

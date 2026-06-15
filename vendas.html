@@ -305,7 +305,7 @@ body.is-admin .adm-flex{display:flex!important;}
     <p class="text-[9px] text-slate-500 font-bold uppercase mb-3">Selecione o cliente</p>
     <div class="relative mb-3">
       <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none"></i>
-      <input type="text" id="buscaClienteFiado" oninput="clearTimeout(this._t);this._t=setTimeout(renderClientesFiado,150)" class="inp !pl-9 !py-2.5" placeholder="Buscar cliente...">
+      <input type="text" id="buscaClienteFiado" oninput="renderClientesFiado()" class="inp !pl-9 !py-2.5" placeholder="Buscar cliente...">
     </div>
     <div id="listaClientesFiado" class="space-y-2 max-h-72 overflow-y-auto scroll"></div>
   </div>
@@ -415,7 +415,8 @@ body.is-admin .adm-flex{display:flex!important;}
 
   <script src="./services/estoqueService.js"></script>
   <script src="./services/financeiroService.js"></script>
-  <script src="./services/vendasService.js"></script>
+  <!-- integrityService.js removido -->
+<script src="./services/vendasService.js"></script>
 <script>
 'use strict';
 
@@ -472,19 +473,13 @@ function init() {
   renderCatalogo();
   renderCart();
   atualizarAlerta();
-  // FIX [MÉDIO - Perf]: throttle em store:updated — Firebase onSnapshot pode disparar
-  // múltiplos eventos em sequência rápida (sync de vários docs). Sem throttle,
-  // renderCatalogo() e renderCart() rodavam N vezes consecutivas bloqueando a UI.
-  let _vendasRenderTimer = null;
   EventBus.on('store:updated', (col) => {
-    clearTimeout(_vendasRenderTimer);
-    _vendasRenderTimer = setTimeout(() => {
-      renderCatalogo(); renderCart(); atualizarAlerta();
-      if (col === 'vendas') {
-        const relatorio = document.getElementById('secRelatorio');
-        if (relatorio && !relatorio.classList.contains('hidden')) abrirRelatorio();
-      }
-    }, 80); // 80ms — imperceptível ao usuário, elimina renders em cascata
+    renderCatalogo(); renderCart(); atualizarAlerta();
+    // Re-renderiza histórico se estiver visível
+    if (col === 'vendas') {
+      const relatorio = document.getElementById('secRelatorio');
+      if (relatorio && !relatorio.classList.contains('hidden')) abrirRelatorio();
+    }
   });
   EventBus.on('cart:updated', renderCart);
 }
@@ -997,15 +992,23 @@ function cancelarUltimaVenda() {
       console.warn('[cancelar] estoque Firebase falhou:', e.message)
     );
   }
-  // Remove venda local
+  // FIX: marcar como cancelada (não remover) — preserva histórico/auditoria/BI
+  // e permite que o estorno encontre a venda via Store.getVendas().
+  let vendaAtualizada;
   Store.mutateVendas(vendas => {
-    const idx = vendas.findIndex(v=>v.id===_ultimaVenda.id);
-    if (idx >= 0) vendas.splice(idx,1);
+    const v = vendas.find(x=>x.id===_ultimaVenda.id);
+    if (!v) return;
+    v.status        = 'cancelada';
+    v.canceladoEm   = new Date(new Date().getTime() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);
+    v.canceladoPor  = AuthService.getNome();
+    vendaAtualizada = { ...v };
   });
-  // Sincroniza exclusão com Firebase
-  if (window.CH.SyncQueue) {
-    window.CH.SyncQueue.enqueue('deletar', 'vendas', [_ultimaVenda.id]);
+  // Sincroniza atualização (não deletar) com Firebase
+  if (window.CH.SyncQueue && vendaAtualizada) {
+    window.CH.SyncQueue.enqueue('atualizar', 'vendas', [vendaAtualizada]);
   }
+  // Dispara estorno no financeiro (financeiroService.js escuta este evento)
+  EventBus.emit('venda:cancelada', { vendaId: _ultimaVenda.id, operador: AuthService.getNome() });
   // Se foi fiado, reverte saldo
   if ((_ultimaVenda.formaPgto||'').startsWith('Fiado')) {
     const nomeCliente = _ultimaVenda.formaPgto.replace('Fiado — ','').trim();
@@ -1072,7 +1075,8 @@ function baixarRecibo() { if (!_ultimaVenda) return; Utils.downloadBlob(_gerarTe
 
 /* ══ RELATÓRIO ══ */
 function abrirRelatorio() {
-  const vendas = Store.getVendasHoje();
+  const todasHoje = Store.getVendasHoje();
+  const vendas    = todasHoje.filter(v=>v.status!=='cancelada');
   const fatur  = vendas.reduce((s,v)=>s+v.total,0);
   const lucro  = vendas.reduce((s,v)=>s+(v.lucro||0),0);
   const ticket = vendas.length ? fatur/vendas.length : 0;
@@ -1093,79 +1097,79 @@ function abrirRelatorio() {
   document.getElementById('relTopProd').innerHTML = top.map(([nome,qtd],i)=>
     `<div class="flex items-center justify-between bg-slate-900/60 border border-white/5 rounded-xl px-3 py-2"><span class="text-[10px] font-black text-slate-300">${icons[i]} ${nome}</span><span class="text-[10px] font-black text-amber-400">${qtd} un</span></div>`).join('')
     ||'<p class="text-[9px] text-slate-600 text-center py-2 font-bold">Sem itens</p>';
-  document.getElementById('relHistorico').innerHTML = [...vendas].reverse().map(v=>`
-    <div class="bg-slate-900/60 border border-white/5 rounded-xl px-3 py-2 flex justify-between items-center">
+  document.getElementById('relHistorico').innerHTML = [...todasHoje].reverse().map(v=>{
+    const canc=v.status==='cancelada';
+    return `
+    <div class="bg-slate-900/60 border border-white/5 rounded-xl px-3 py-2 flex justify-between items-center ${canc?'opacity-50':''}">
       <div>
-        <p class="text-[10px] font-black text-white">${Utils.formatCurrency(v.total)}</p>
-        <p class="text-[8px] text-slate-500 font-bold">${v.hora} · ${v.formaPgto}</p>
+        <p class="text-[10px] font-black ${canc?'text-slate-500 line-through':'text-white'}">${Utils.formatCurrency(v.total)}</p>
+        <p class="text-[8px] text-slate-500 font-bold">${v.hora} · ${v.formaPgto}${canc?' · CANCELADA':''}</p>
       </div>
       <div class="flex items-center gap-2">
         <span class="badge b-blue text-[8px]">${v.itens.length} item${v.itens.length>1?'s':''}</span>
-        <button onclick="cancelarVendaHistorico('${v.id}')" class="w-6 h-6 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 flex items-center justify-center adm-only" title="Cancelar"><i class="fas fa-times text-[8px]"></i></button>
+        ${canc?'':'<button onclick="cancelarVendaHistorico(\''+v.id+'\')" class="w-6 h-6 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 flex items-center justify-center adm-only" title="Cancelar"><i class="fas fa-times text-[8px]"></i></button>'}
       </div>
-    </div>`).join('')||'<p class="text-[9px] text-slate-600 text-center py-4 font-bold">Sem vendas hoje</p>';
+    </div>`;
+  }).join('')||'<p class="text-[9px] text-slate-600 text-center py-4 font-bold">Sem vendas hoje</p>';
   UIService.openModal('modalRelatorio');
 }
 
 function cancelarVendaHistorico(vendaId) {
   const venda = Store.getVendas().find(v=>v.id===vendaId);
   if (!venda) return;
-  // FIX [CRÍTICO]: cancelamento anterior fazia hard delete (splice) da venda.
-  // Consequências: (1) perda de rastreabilidade — auditoria perdia o registro;
-  // (2) sem registrarEstorno no financeiro — caixa ficava inflado;
-  // (3) Firebase recebia 'deletar' mas histórico local sumia.
-  // Agora usa soft cancel: status='cancelada' + estorno financeiro.
-  const motivo = prompt('Motivo do cancelamento (obrigatório):','');
-  if (motivo === null) return; // usuário cancelou o prompt
-  if (!motivo.trim()) { UIService.showToast('Informe o motivo','','error'); return; }
-
-  // 1. Reverte estoque via EstoqueService (Transaction + audit)
+  if (venda.status === 'cancelada') { UIService.showToast('Venda já cancelada','','warning'); return; }
+  if (!confirm(`Cancelar venda de ${Utils.formatCurrency(venda.total)}?`)) return;
+  Store.mutateEstoque(estoque => {
+    (venda.itens||[]).forEach(item => {
+      const prod = estoque.find(p=>p.id===item.prodId);
+      if (!prod) return;
+      const pack=prod?.packs?.find(pk=>pk.label===item.label||(pk.qtd+'x')===item.label);
+      const qtdDev=item.label==='UNID'?item.qtd:item.qtd*(pack?.qtd||1);
+      prod.qtdUn = (prod.qtdUn||0)+qtdDev;
+    });
+  });
+  // Restaurar estoque no Firebase (Transaction)
   const _esSvc = window.CH?.EstoqueService;
   if (_esSvc) {
     _esSvc.cancelarVenda(vendaId, venda.itens || []).catch(e =>
       console.warn('[cancelarHistorico] estoque Firebase falhou:', e.message)
     );
-  } else {
-    Store.mutateEstoque(estoque => {
-      (venda.itens||[]).forEach(item => {
-        const prod = estoque.find(p=>p.id===item.prodId);
-        if (!prod) return;
-        const pack=prod?.packs?.find(pk=>pk.label===item.label||(pk.qtd+'x')===item.label);
-        const qtdDev=item.label==='UNID'?item.qtd:item.qtd*(pack?.qtd||1);
-        prod.qtdUn = (prod.qtdUn||0)+qtdDev;
-      });
-    });
   }
-
-  // 2. Soft cancel — preserva rastreabilidade
+  // FIX: marcar como cancelada (não remover) — preserva histórico/auditoria/BI
+  // e permite que o estorno encontre a venda via Store.getVendas().
+  let vendaAtualizada;
   Store.mutateVendas(vendas => {
     const v = vendas.find(x=>x.id===vendaId);
     if (!v) return;
-    v.status = 'cancelada';
-    v.motivoCancelamento = motivo.trim();
-    v.canceladoEm = new Date().toISOString();
-    v.canceladoPor = AuthService.getNome();
-    v._fbSynced = false;
+    v.status        = 'cancelada';
+    v.canceladoEm   = new Date(new Date().getTime() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);
+    v.canceladoPor  = AuthService.getNome();
+    vendaAtualizada = { ...v };
   });
-
-  // 3. Estorno no financeiro (idempotente — segunda chamada ignorada)
-  const _finSvc = window.CH?.FinanceiroService;
-  if (_finSvc && ['concluida','validada','aprovada'].includes(venda.status)) {
-    _finSvc.registrarEstorno({ ...venda, motivoCancelamento: motivo.trim() });
+  // Sincroniza atualização (não deletar) com Firebase
+  if (window.CH.SyncQueue && vendaAtualizada) {
+    window.CH.SyncQueue.enqueue('atualizar', 'vendas', [vendaAtualizada]);
   }
-
-  // 4. Sync Firebase (atualizar, não deletar — mantém histórico)
-  if (window.CH?.SyncQueue) {
-    const vendaAtual = Store.getVendas().find(v=>v.id===vendaId);
-    if (vendaAtual) window.CH.SyncQueue.enqueue('atualizar', 'vendas', vendaAtual);
+  // Dispara estorno no financeiro (financeiroService.js escuta este evento)
+  EventBus.emit('venda:cancelada', { vendaId, operador: AuthService.getNome() });
+  // Se foi fiado, reverte saldo
+  if ((venda.formaPgto||'').startsWith('Fiado')) {
+    const nomeCliente = venda.formaPgto.replace('Fiado — ','').trim();
+    Store.mutateFiado(fiado => {
+      const c = fiado.find(x=>x.nome===nomeCliente);
+      if (!c) return;
+      c.saldo = Math.max(0,(c.saldo||0)-venda.total);
+      if (!Array.isArray(c.movimentacoes)) c.movimentacoes=[];
+      c.movimentacoes.unshift({ id:Utils.generateId(), tipo:'cancelamento', descricao:'Cancelamento histórico', valor:venda.total, criadoEm:new Date().toISOString() });
+      if (c.saldo <= 0) c.bloqueado = false;
+    });
   }
-
-  UIService.showToast('Venda cancelada','Estoque revertido + estorno registrado','warning');
+  UIService.showToast('Venda cancelada','','warning');
   abrirRelatorio();
 }
 
 function _gerarTextoRelatorio() {
-  const vendas = Store.getVendasHoje();
+  const vendas = Store.getVendasHoje().filter(v=>v.status!=='cancelada');
   const fatur  = vendas.reduce((s,v)=>s+v.total,0);
   const lucro  = vendas.reduce((s,v)=>s+(v.lucro||0),0);
   const cfg    = Store.getConfig();

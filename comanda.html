@@ -278,7 +278,8 @@ body.is-admin .adm-only{display:flex!important;}
   <script src="./services/backupService.js"></script>
   <script src="./services/estoqueService.js"></script>
   <script src="./services/financeiroService.js"></script>
-  <script src="./services/vendasService.js"></script>
+  <!-- integrityService.js removido -->
+<script src="./services/vendasService.js"></script>
 
 <script>
 'use strict';
@@ -703,17 +704,12 @@ async function confirmarFechamento(forma) {
 
   // Fallback legado (se VendasService não disponível ou falhou)
   if (!venda) {
-    // FIX [CRÍTICO]: fallback sem campo status — venda ficava invisível para KPIs
     venda = {
       id: Utils.generateId(), dataCurta: Utils.todayISO(),
       data: Utils.today(), hora: Utils.nowTime(),
       criadoEm: new Date().toISOString(),
       itens, total, lucro, subtotal: total, desconto: 0,
       formaPgto: forma, origem: 'COMANDA', nomeComanda: cmd.nome,
-      status: 'concluida',
-      operador: AuthService.getNome(),
-      role: AuthService.getRole(),
-      _fbSynced: false,
     };
     Store.mutateVendas(vendas => { vendas.unshift(venda); });
     Store.mutateEstoque(est => {

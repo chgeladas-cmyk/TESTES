@@ -237,6 +237,7 @@ body.is-admin .adm-only{display:flex!important;}
 <!-- ══ SCRIPTS ══ -->
 <script src="./core.js"></script>
 <script src="./services/estoqueService.js"></script>
+<!-- integrityService.js removido -->
 <script src="./services/vendasService.js"></script>
 <script src="./services/syncService.js"></script>
 
@@ -274,8 +275,7 @@ function hoje() {
   const now = new Date();
   const offset = now.getTimezoneOffset();
   const local = new Date(now.getTime() - offset * 60000);
-  // FIX [MÉDIO]: toISOString() ainda pode retornar UTC — usa componentes locais direto
-  return `${local.getFullYear()}-${String(local.getMonth()+1).padStart(2,'0')}-${String(local.getDate()).padStart(2,'0')}`;
+  return local.toISOString().split('T')[0];
 }
 
 function nowISO() { return new Date().toISOString(); }

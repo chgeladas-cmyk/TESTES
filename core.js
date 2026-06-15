@@ -51,9 +51,12 @@ const CONSTANTS = Object.freeze({
   MAX_SAIDAS:        5_000,
   MAX_SYNC_QUEUE:    500,
 
+  // Hashes de emergência (fallback legado): SHA256('001') e SHA256('123').
+  // Prioridade: cfg.pinHashAdmin > CH_USERS > estes hashes.
+  // Servem apenas para recuperação quando CH_CONFIG.pinHashAdmin não está configurado.
   PIN_HASH: Object.freeze({
-  ADMIN: '7a3e6b16cb75f48fb897eff3ae732f3154f6d203b53f33660f01b4c3b6bc2df9',
-  PDV:   'a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3',
+    ADMIN: '7a3e6b16cb75f48fb897eff3ae732f3154f6d203b53f33660f01b4c3b6bc2df9', // SHA256('001')
+    PDV:   'a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3', // SHA256('123')
   }),
 
   PERMISSOES: Object.freeze({
@@ -70,38 +73,66 @@ const CONSTANTS = Object.freeze({
     escrever: ['estoque','vendas','comandas','fiado','ponto','pedidos','config','auditoria','movimentacoes','categorias','fornecedores','financeiro','saidas','cambio','perfis'],
   }),
   colaborador: Object.freeze({
-    ler:      ['vendas', 'comandas', 'fiado', 'perfis'],
-    escrever: ['vendas', 'comandas'],
+    ler:      ['vendas', 'comandas', 'fiado', 'ponto', 'perfis'],
+    // FIX: 'ponto' adicionado — colaborador precisa gravar ponto no Firebase
+    // para que o admin visualize em tempo real. Firestore Rules permitem
+    // escrita sem adminToken (regra explícita em ch_dados/ponto).
+    escrever: ['vendas', 'comandas', 'ponto'],
   }),
   controlador: Object.freeze({
-    ler:      ['vendas','aprovacao', 'perfis'],
-    escrever: ['aprovacao'],
+    ler:      ['vendas', 'aprovacao', 'ponto', 'perfis'],
+    escrever: ['aprovacao', 'ponto'],
   }),
   validador: Object.freeze({
-    ler:      ['vendas','estoque','financeiro','aprovacao', 'perfis'],
-    escrever: ['aprovacao'],
+    ler:      ['vendas','estoque','financeiro','aprovacao', 'ponto', 'perfis'],
+    escrever: ['aprovacao', 'estoque', 'ponto'],
   }),
   analista: Object.freeze({
-    ler:      ['vendas','estoque','financeiro','aprovacao', 'perfis'],
-    escrever: ['aprovacao'],
+    ler:      ['vendas','estoque','financeiro','aprovacao', 'ponto', 'perfis'],
+    escrever: ['aprovacao', 'ponto'],
   }),
   gerente: Object.freeze({
     ler:      ['estoque','vendas','comandas','fiado','ponto','financeiro','cambio','perfis'],
     escrever: ['estoque','vendas','comandas','fiado','ponto','financeiro','cambio','perfis'],
   }),
   operador: Object.freeze({
-    ler:      ['estoque','vendas','comandas','fiado','perfis'],
-    escrever: ['vendas','comandas'],
+    ler:      ['estoque','vendas','comandas','fiado','ponto','perfis'],
+    // FIX: 'ponto' adicionado — operador também bate ponto
+    escrever: ['vendas','comandas','ponto'],
   }),
   entregador: Object.freeze({
-    ler:      ['pedidos', 'perfis'],
-    escrever: ['pedidos'],
+    ler:      ['pedidos', 'ponto', 'perfis'],
+    escrever: ['pedidos', 'ponto'],
   }),
   }),
 
   TIPOS_MOVIMENTACAO: Object.freeze(['entrada','venda','avaria','ajuste','transferencia','cancelamento','inventario']),
   ROLES:              Object.freeze(['admin','adm','gerente','operador','entregador','pdv','colaborador','controlador','validador','analista']),
 });
+
+// FIX #5: helper para datas locais sem UTC drift
+function _localDateISO(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// Coleções append-only: armazenadas como documento único no Firestore
+// (ch_dados/<col> = {dados:[...]}), sem versionamento por item. Nunca
+// devem ser sobrescritas inteiramente — local e remoto são unidos por
+// `id`. Usado tanto no pull() (merge na leitura) quanto no salvar()
+// (read-modify-write antes do setDoc, Ponto B do audit de sync).
+const _APPEND_ONLY_COLS = Object.freeze(['financeiro', 'saidas', 'ponto', 'movimentacoes']);
+
+// Une duas listas de registros por `id`. Itens de `preferida` sempre
+// vencem em caso de conflito; itens só presentes em `outra` são
+// adicionados. Ordena por criadoEm desc e corta no `limite`.
+function _mergeAppendOnly(preferida, outra, limite) {
+  const idsPreferida = new Set((preferida||[]).map(r => r.id).filter(Boolean));
+  const extras = (outra||[]).filter(r => r.id && !idsPreferida.has(r.id));
+  const merged = [...(preferida||[]), ...extras]
+    .sort((a, b) => (b.criadoEm||'') > (a.criadoEm||'') ? 1 : -1);
+  return limite ? merged.slice(0, limite) : merged;
+}
 
 const Utils = Object.freeze({
   formatCurrency(v) {
@@ -110,9 +141,6 @@ const Utils = Object.freeze({
   }).format(Number(v) || 0);
   },
   todayISO()   { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; },
-  // FIX [BAIXO]: _localISO estava duplicado em 6 arquivos HTML.
-  // Centralizado aqui — todos os módulos usam Utils.dateISO(d).
-  dateISO(d)   { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; },
   today()      { return new Date().toLocaleDateString('pt-BR'); },
   nowTime()    { return new Date().toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }); },
   nowFull()    { return new Date().toLocaleString('pt-BR'); },
@@ -237,10 +265,10 @@ const Store = (() => {
      const cortaAudit  = new Date(); cortaAudit.setDate(cortaAudit.getDate() - 3);
      const cortaFin    = new Date(); cortaFin.setDate(cortaFin.getDate() - 7);
      const cortaMov    = new Date(); cortaMov.setDate(cortaMov.getDate() - 7);
-     const dtV = cortaVendas.toISOString().slice(0,10);
-     const dtA = cortaAudit.toISOString().slice(0,10);
-     const dtF = cortaFin.toISOString().slice(0,10);
-     const dtM = cortaMov.toISOString().slice(0,10);
+     const dtV = _localDateISO(cortaVendas); // FIX #5c
+     const dtA = _localDateISO(cortaAudit); // FIX #5c
+     const dtF = _localDateISO(cortaFin); // FIX #5c
+     const dtM = _localDateISO(cortaMov); // FIX #5c
 
      const purgeCol = (c, dtCorte, key) => {
        try {
@@ -393,7 +421,7 @@ const Store = (() => {
     const corte = (dias) => {
    const d = new Date();
    d.setDate(d.getDate() - dias);
-   return d.toISOString().slice(0, 10);
+   return _localDateISO(d); // FIX #5: data local, não UTC
     };
 
     let purged = {};
@@ -617,12 +645,9 @@ const FirebaseService = (() => {
   const role = AuthService.getRole();
   if (!role || !_db || !_fb) return;
 
-  // FIX [MÉDIO]: 'permissoes' não estava em colsRT.
-  // Mudanças de permissão feitas pelo admin (ex: bloquear colaborador, trocar role)
-  // só chegavam nos outros dispositivos no próximo pull manual — nunca em tempo real.
   const colsRT = (role === 'admin' || role === 'adm')
-    ? ['estoque', 'config', 'fiado', 'comandas', 'pedidos', 'saidas', 'financeiro', 'usuarios', 'permissoes']
-    : ['estoque', 'config', 'usuarios', 'permissoes'];
+    ? ['estoque', 'config', 'fiado', 'comandas', 'pedidos', 'saidas', 'financeiro', 'usuarios', 'ponto']
+    : ['estoque', 'config', 'usuarios'];
 
   // ── Listener em tempo real para coleção vendas ────────────────────
   try {
@@ -665,6 +690,32 @@ const FirebaseService = (() => {
        }
        const key = CONSTANTS.DB[col.toUpperCase()];
        if (!key) return;
+
+       // FIX [CRÍTICO]: Firebase sempre vence para produtos existentes.
+       // O guard hasPendingWrites (acima) já protege o aparelho que fez a escrita
+       // de sobrescrever sua própria transação pendente. Para qualquer outro
+       // aparelho recebendo mudança remota, o Firestore é fonte de verdade.
+       // A lógica anterior de "local vence se updatedAt mais recente" causava
+       // dessincronização: _movimentacaoLocal atualizava updatedAt localmente,
+       // fazendo o merge sempre preferir o valor desatualizado do localStorage.
+       if (col === 'estoque' && Array.isArray(dados)) {
+         const localArr = Store.getEstoque();
+         const fbIds    = new Set(dados.map(p => p.id));
+
+         // Firebase sempre vence para produtos que ele conhece
+         const merged = [...dados];
+
+         // Preserva apenas produtos que existem só no local (ainda não sincronizados)
+         localArr.forEach(p => { if (!fbIds.has(p.id)) merged.push(p); });
+
+         try { localStorage.setItem(key, JSON.stringify(merged)); } catch(_) {}
+         Store.invalidate(col);
+         EventBus.emit('store:updated', col);
+         EventBus.emit(`store:${col}`);
+         EventBus.emit('sync:ok', col);
+         return; // não cai no setItem genérico abaixo
+       }
+
        try { localStorage.setItem(key, JSON.stringify(dados)); } catch(_) {}
        Store.invalidate(col);
        EventBus.emit('store:updated', col);
@@ -713,10 +764,36 @@ const FirebaseService = (() => {
    console.info(`[Firebase] ✓ ${pendentes.length} venda(s) sincronizadas.`);
     } else {
       // Coleções que qualquer autenticado pode escrever (sem adminToken)
-      const _semAdminToken = new Set(['comandas', 'fiado', 'cambio']);
-      const docData = { dados, ts: Utils.nowISO() };
+      const _semAdminToken = new Set(['comandas', 'fiado', 'cambio', 'ponto']);
+
+      let dadosParaSalvar = dados;
+      if (_APPEND_ONLY_COLS.includes(colName) && Array.isArray(dados)) {
+        // Ponto B: read-modify-write. setDoc substitui o documento inteiro;
+        // sem isto, dois dispositivos salvando quase ao mesmo tempo fariam
+        // o segundo write descartar itens que só o primeiro tinha enviado.
+        try {
+          const snap = await _fb.getDoc(_fb.doc(_db, 'ch_dados', colName));
+          const remotoAtual = snap.exists() ? snap.data().dados : null;
+          if (Array.isArray(remotoAtual)) {
+            const limite = CONSTANTS[`MAX_${colName.toUpperCase()}`];
+            dadosParaSalvar = _mergeAppendOnly(dados, remotoAtual, limite);
+          }
+        } catch (e) {
+          console.warn(`[Firebase] Leitura prévia (${colName}) falhou — salvando sem merge:`, e.code || e.message);
+        }
+      }
+
+      const docData = { dados: dadosParaSalvar, ts: Utils.nowISO() };
       if (_adminToken && !_semAdminToken.has(colName)) docData.adminToken = _adminToken;
       await _fb.setDoc(_fb.doc(_db, 'ch_dados', colName), docData);
+
+      // Se o merge trouxe itens extras do remoto, reflete localmente —
+      // senão o array local fica "atrasado" em relação ao que o
+      // dispositivo acabou de gravar, até o próximo pull().
+      if (dadosParaSalvar !== dados && dadosParaSalvar.length !== dados.length) {
+        Store._writeRaw(colName, dadosParaSalvar);
+        window.CH.SyncQueue?.atualizarPendentes?.(colName, dadosParaSalvar);
+      }
     }
     return true;
   } catch(e) {
@@ -842,6 +919,7 @@ const FirebaseService = (() => {
   newDocRef,
   getBatch,
   serverTimestamp,
+  getDoc: (ref) => { if (!_ready) throw new Error('Firebase não inicializado'); return _fb.getDoc(ref); }, // FIX #3
   };
 })();
 
@@ -930,6 +1008,27 @@ const SyncService = (() => {
         writeRaw(merged);
         console.info(`[Sync] Merge ${col}: +${novosDaNuvem.length} da nuvem.`);
       }
+    } else if (_APPEND_ONLY_COLS.includes(col)) {
+      // FIX [CRÍTICO]: financeiro/saidas/ponto/movimentacoes são append-only.
+      // localStorage.setItem(key, dados_remotos) destruía lançamentos locais
+      // criados/editados entre o último push e este pull (ex.: estorno
+      // registrado localmente mas ainda não enviado ao Firestore).
+      // Estratégia: união por id (ver _mergeAppendOnly). Itens locais
+      // sempre preservados; itens remotos ausentes localmente são
+      // adicionados (mais recentes primeiro).
+      const local  = Store[`get${col.charAt(0).toUpperCase()+col.slice(1)}`]();
+      const limite = CONSTANTS[`MAX_${col.toUpperCase()}`] || CONSTANTS.MAX_REGISTROS;
+      const merged = _mergeAppendOnly(local, dados, limite);
+
+      if (merged.length !== local.length) {
+        Store._writeRaw(col, merged);
+        // Mantém o snapshot já enfileirado (se houver) sincronizado com o
+        // array mesclado, para que o próximo 'salvar' não sobrescreva o
+        // Firestore com uma versão anterior ao pull.
+        window.CH.SyncQueue?.atualizarPendentes?.(col, merged);
+        console.info(`[Sync] Merge ${col}: +${merged.length - local.length} da nuvem (append-only).`);
+      }
+      // merged.length === local.length → nada novo, local já tem tudo (ou mais).
     } else {
    const key = CONSTANTS.DB[col.toUpperCase()];
    if (key) { try { localStorage.setItem(key, JSON.stringify(dados)); } catch(_) {} }
@@ -1303,27 +1402,3 @@ console.info(
   'background:#1e293b;color:#60a5fa;font-weight:bold;padding:2px 6px;border-radius:4px',
   'color:#94a3b8'
 );
-
-// FIX [MÉDIO] — Etapa 10: Captura global de erros silenciosos.
-// Antes, erros não tratados em Promises e listeners desapareciam sem log.
-(function _globalErrorBoundary() {
-  const _auditFail = (tipo, msg, src) => {
-    try {
-      const A = window.CH && window.CH.AuditService;
-      if (A) A.registrar({ tipo, descricao: msg, origem: src || 'global', nivel: 'ERROR' });
-    } catch (_) {}
-  };
-
-  window.addEventListener('unhandledrejection', function(ev) {
-    var msg = (ev.reason && ev.reason.message) ? ev.reason.message : String(ev.reason || 'Promise rejeitada');
-    console.warn('[GlobalError] unhandledrejection:', msg);
-    _auditFail('ERRO_PROMISE', msg, ev.reason && ev.reason.stack ? ev.reason.stack.split('\n')[1] : '');
-  });
-
-  window.onerror = function(msg, src, linha, col, err) {
-    var descricao = msg + ' — ' + src + ':' + linha + ':' + col;
-    console.warn('[GlobalError] window.onerror:', descricao);
-    _auditFail('ERRO_JS', descricao, err && err.stack ? err.stack.split('\n')[1] : '');
-    return false;
-  };
-})();
