@@ -28,6 +28,7 @@ const CONSTANTS = Object.freeze({
   FORNECEDORES:   'CH_FORNECEDORES',
   FINANCEIRO:     'CH_FINANCEIRO',
   SAIDAS:         'CH_SAIDAS',
+  CONTAGENS:      'CH_CONTAGENS',
   CAMBIO:         'CH_CAMBIO',
   PERFIS:         'CH_PERFIS',
   SYNC_QUEUE:     'CH_SYNC_QUEUE',
@@ -49,6 +50,7 @@ const CONSTANTS = Object.freeze({
   MAX_MOVIMENTACOES: 10_000,
   MAX_FINANCEIRO:    5_000,
   MAX_SAIDAS:        5_000,
+  MAX_CONTAGENS:     2_000,
   MAX_SYNC_QUEUE:    500,
 
   // Hashes de emergência (fallback legado): SHA256('001') e SHA256('123').
@@ -114,24 +116,6 @@ const CONSTANTS = Object.freeze({
 function _localDateISO(date) {
   const d = date instanceof Date ? date : new Date(date);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-
-// Coleções append-only: armazenadas como documento único no Firestore
-// (ch_dados/<col> = {dados:[...]}), sem versionamento por item. Nunca
-// devem ser sobrescritas inteiramente — local e remoto são unidos por
-// `id`. Usado tanto no pull() (merge na leitura) quanto no salvar()
-// (read-modify-write antes do setDoc, Ponto B do audit de sync).
-const _APPEND_ONLY_COLS = Object.freeze(['financeiro', 'saidas', 'ponto', 'movimentacoes']);
-
-// Une duas listas de registros por `id`. Itens de `preferida` sempre
-// vencem em caso de conflito; itens só presentes em `outra` são
-// adicionados. Ordena por criadoEm desc e corta no `limite`.
-function _mergeAppendOnly(preferida, outra, limite) {
-  const idsPreferida = new Set((preferida||[]).map(r => r.id).filter(Boolean));
-  const extras = (outra||[]).filter(r => r.id && !idsPreferida.has(r.id));
-  const merged = [...(preferida||[]), ...extras]
-    .sort((a, b) => (b.criadoEm||'') > (a.criadoEm||'') ? 1 : -1);
-  return limite ? merged.slice(0, limite) : merged;
 }
 
 const Utils = Object.freeze({
@@ -765,35 +749,9 @@ const FirebaseService = (() => {
     } else {
       // Coleções que qualquer autenticado pode escrever (sem adminToken)
       const _semAdminToken = new Set(['comandas', 'fiado', 'cambio', 'ponto']);
-
-      let dadosParaSalvar = dados;
-      if (_APPEND_ONLY_COLS.includes(colName) && Array.isArray(dados)) {
-        // Ponto B: read-modify-write. setDoc substitui o documento inteiro;
-        // sem isto, dois dispositivos salvando quase ao mesmo tempo fariam
-        // o segundo write descartar itens que só o primeiro tinha enviado.
-        try {
-          const snap = await _fb.getDoc(_fb.doc(_db, 'ch_dados', colName));
-          const remotoAtual = snap.exists() ? snap.data().dados : null;
-          if (Array.isArray(remotoAtual)) {
-            const limite = CONSTANTS[`MAX_${colName.toUpperCase()}`];
-            dadosParaSalvar = _mergeAppendOnly(dados, remotoAtual, limite);
-          }
-        } catch (e) {
-          console.warn(`[Firebase] Leitura prévia (${colName}) falhou — salvando sem merge:`, e.code || e.message);
-        }
-      }
-
-      const docData = { dados: dadosParaSalvar, ts: Utils.nowISO() };
+      const docData = { dados, ts: Utils.nowISO() };
       if (_adminToken && !_semAdminToken.has(colName)) docData.adminToken = _adminToken;
       await _fb.setDoc(_fb.doc(_db, 'ch_dados', colName), docData);
-
-      // Se o merge trouxe itens extras do remoto, reflete localmente —
-      // senão o array local fica "atrasado" em relação ao que o
-      // dispositivo acabou de gravar, até o próximo pull().
-      if (dadosParaSalvar !== dados && dadosParaSalvar.length !== dados.length) {
-        Store._writeRaw(colName, dadosParaSalvar);
-        window.CH.SyncQueue?.atualizarPendentes?.(colName, dadosParaSalvar);
-      }
     }
     return true;
   } catch(e) {
@@ -1008,27 +966,6 @@ const SyncService = (() => {
         writeRaw(merged);
         console.info(`[Sync] Merge ${col}: +${novosDaNuvem.length} da nuvem.`);
       }
-    } else if (_APPEND_ONLY_COLS.includes(col)) {
-      // FIX [CRÍTICO]: financeiro/saidas/ponto/movimentacoes são append-only.
-      // localStorage.setItem(key, dados_remotos) destruía lançamentos locais
-      // criados/editados entre o último push e este pull (ex.: estorno
-      // registrado localmente mas ainda não enviado ao Firestore).
-      // Estratégia: união por id (ver _mergeAppendOnly). Itens locais
-      // sempre preservados; itens remotos ausentes localmente são
-      // adicionados (mais recentes primeiro).
-      const local  = Store[`get${col.charAt(0).toUpperCase()+col.slice(1)}`]();
-      const limite = CONSTANTS[`MAX_${col.toUpperCase()}`] || CONSTANTS.MAX_REGISTROS;
-      const merged = _mergeAppendOnly(local, dados, limite);
-
-      if (merged.length !== local.length) {
-        Store._writeRaw(col, merged);
-        // Mantém o snapshot já enfileirado (se houver) sincronizado com o
-        // array mesclado, para que o próximo 'salvar' não sobrescreva o
-        // Firestore com uma versão anterior ao pull.
-        window.CH.SyncQueue?.atualizarPendentes?.(col, merged);
-        console.info(`[Sync] Merge ${col}: +${merged.length - local.length} da nuvem (append-only).`);
-      }
-      // merged.length === local.length → nada novo, local já tem tudo (ou mais).
     } else {
    const key = CONSTANTS.DB[col.toUpperCase()];
    if (key) { try { localStorage.setItem(key, JSON.stringify(dados)); } catch(_) {} }

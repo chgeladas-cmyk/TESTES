@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>Contagem de Estoque — CH Geladas</title>
+<link rel="manifest" href="manifest.json"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{background:#0f172a;color:#e2e8f0;font-family:'Inter',system-ui,sans-serif;margin:0;min-height:100vh}
+.safe-top{padding-top:env(safe-area-inset-top,0)}
+
+/* Header */
+.top-bar{background:#1e293b;border-bottom:1px solid #334155;position:sticky;top:0;z-index:40;padding:.75rem 1rem}
+
+/* Tabs */
+.tabs{display:flex;border-bottom:2px solid #334155;background:#1e293b}
+.tab{flex:1;padding:.65rem;font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#64748b;text-align:center;cursor:pointer;transition:all .2s;border-bottom:2px solid transparent}
+.tab.active{color:#818cf8;border-color:#818cf8;background:#1e293b}
+
+/* Per buttons */
+.per-btn{padding:.4rem .85rem;border-radius:8px;font-size:.72rem;font-weight:700;border:1.5px solid #334155;background:transparent;color:#94a3b8;cursor:pointer;transition:all .18s}
+.per-btn.active{background:#6366f1;border-color:#6366f1;color:#fff}
+
+/* Cards KPI */
+.kpi{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:.85rem 1rem;text-align:center}
+.kpi-val{font-size:1.4rem;font-weight:800;line-height:1}
+.kpi-lbl{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#64748b;margin-top:.25rem}
+
+/* Categoria header */
+.cat-hdr{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:.6rem .9rem;display:flex;justify-content:space-between;align-items:center;cursor:pointer;margin-bottom:.35rem}
+.cat-hdr:hover{background:#263347}
+.cat-body{display:none;margin-bottom:.75rem}
+.cat-body.open{display:block}
+
+/* Linha de produto */
+.prod-row{background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:.6rem .85rem;display:flex;align-items:center;gap:.75rem;margin-bottom:.3rem;transition:border-color .15s}
+.prod-row:focus-within{border-color:#6366f1}
+.prod-row.divergente{border-color:#f59e0b !important}
+.prod-row.ok{border-color:#10b981 !important}
+.prod-nome{flex:1;font-size:.8rem;font-weight:600;line-height:1.2}
+.prod-unid{font-size:.65rem;color:#64748b;font-weight:600}
+.qty-input{width:70px;background:#1e293b;border:1.5px solid #334155;border-radius:8px;color:#e2e8f0;font-size:.9rem;font-weight:700;text-align:center;padding:.3rem .4rem;outline:none;transition:border-color .15s}
+.qty-input:focus{border-color:#6366f1}
+.qty-input.neg{border-color:#f87171}
+.qty-input.pos{border-color:#10b981}
+
+/* Diferença badge */
+.dif-badge{font-size:.65rem;font-weight:800;border-radius:6px;padding:.1rem .4rem;min-width:40px;text-align:center}
+.dif-neg{background:#7f1d1d40;color:#fca5a5}
+.dif-pos{background:#14532d40;color:#6ee7b7}
+.dif-zero{background:#1e293b;color:#475569}
+
+/* Status badge */
+.status-badge{display:inline-flex;align-items:center;gap:.3rem;font-size:.65rem;font-weight:800;padding:.2rem .6rem;border-radius:999px;text-transform:uppercase;letter-spacing:.05em}
+.s-pend{background:#78350f40;color:#fcd34d}
+.s-aprov{background:#14532d40;color:#6ee7b7}
+.s-rej{background:#7f1d1d40;color:#fca5a5}
+
+/* Tabela histórico */
+.htable{width:100%;font-size:.72rem;border-collapse:collapse}
+.htable th{color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:.4rem .5rem;text-align:left;border-bottom:1px solid #334155}
+.htable td{padding:.45rem .5rem;border-bottom:1px solid #1e293b;vertical-align:middle}
+.htable tr:hover td{background:#1e293b}
+
+/* Progress bar */
+.progbar{height:4px;background:#1e293b;border-radius:4px;overflow:hidden;margin:.5rem 0}
+.progbar-inner{height:100%;background:#6366f1;border-radius:4px;transition:width .4s}
+
+/* Floating save btn */
+.fab-save{position:fixed;bottom:calc(env(safe-area-inset-bottom,0) + 1.25rem);right:1.25rem;z-index:50;background:#6366f1;border:none;border-radius:16px;padding:.85rem 1.5rem;font-size:.82rem;font-weight:800;color:#fff;cursor:pointer;box-shadow:0 4px 20px #6366f144;display:flex;align-items:center;gap:.5rem;transition:transform .15s,background .15s}
+.fab-save:hover{background:#4f46e5;transform:scale(1.04)}
+.fab-save:disabled{background:#334155;color:#64748b;cursor:default;transform:none}
+
+/* Summary modal */
+.modal-backdrop{position:fixed;inset:0;background:#00000088;z-index:60;display:flex;align-items:flex-end}
+.modal-sheet{background:#1e293b;border-radius:20px 20px 0 0;padding:1.5rem;width:100%;max-height:90vh;overflow-y:auto}
+.modal-sheet.hidden{display:none}
+
+/* Anim */
+@keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+.anim-in{animation:slideUp .22s ease both}
+
+/* Toast */
+.toast{position:fixed;bottom:calc(env(safe-area-inset-bottom,0)+5rem);left:50%;transform:translateX(-50%);background:#1e293b;border:1px solid #334155;border-radius:10px;padding:.6rem 1.2rem;font-size:.78rem;font-weight:600;z-index:9999;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .25s}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="top-bar safe-top">
+  <div class="flex items-center gap-3">
+    <button onclick="history.back()" class="w-9 h-9 rounded-lg bg-slate-800 text-slate-300 flex items-center justify-center hover:bg-slate-700">
+      <i class="fas fa-arrow-left text-sm"></i>
+    </button>
+    <div>
+      <div class="text-base font-bold leading-none">Contagem de Estoque</div>
+      <div class="text-xs text-slate-500 mt-0.5" id="topSubtitle">Inventário físico</div>
+    </div>
+    <div class="ml-auto flex items-center gap-2">
+      <div id="badgePendentes" class="hidden bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full"></div>
+      <button onclick="exportarCSV()" id="btnExport" class="hidden w-9 h-9 rounded-lg bg-slate-800 text-slate-300 flex items-center justify-center hover:bg-slate-700" title="Exportar CSV">
+        <i class="fas fa-download text-sm"></i>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <button class="tab active" onclick="setTab('nova')" id="tabNova">
+    <i class="fas fa-clipboard-list mr-1"></i>Nova Contagem
+  </button>
+  <button class="tab" onclick="setTab('relatorio')" id="tabRelatorio">
+    <i class="fas fa-chart-bar mr-1"></i>Relatórios
+  </button>
+  <button class="tab" onclick="setTab('historico')" id="tabHistorico">
+    <i class="fas fa-history mr-1"></i>Histórico
+  </button>
+</div>
+
+<div class="p-4 pb-28">
+
+  <!-- ══ TAB: NOVA CONTAGEM ══ -->
+  <div id="panelNova">
+
+    <!-- Tipo de contagem -->
+    <div class="bg-slate-800 border border-slate-700 rounded-xl p-4 mb-4">
+      <div class="text-xs text-slate-400 font-bold uppercase tracking-widest mb-3">Tipo de Contagem</div>
+      <div class="flex gap-2">
+        <button class="per-btn active" data-tipo="diaria"   onclick="setTipo('diaria',this)">📅 Diária</button>
+        <button class="per-btn"       data-tipo="semanal"   onclick="setTipo('semanal',this)">📆 Semanal</button>
+        <button class="per-btn"       data-tipo="mensal"    onclick="setTipo('mensal',this)">🗓️ Mensal</button>
+      </div>
+      <div class="text-xs text-slate-500 mt-2" id="tipoDesc">Contagem rápida do dia — ideal para itens de alto giro.</div>
+    </div>
+
+    <!-- Busca + progresso -->
+    <div class="flex gap-2 mb-3">
+      <div class="flex-1 relative">
+        <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+        <input id="buscaProd" type="text" placeholder="Buscar produto…"
+          class="w-full bg-slate-800 border border-slate-700 rounded-lg pl-8 pr-3 py-2 text-sm text-slate-200 placeholder-slate-500 outline-none focus:border-indigo-500"
+          oninput="filtrarProdutos(this.value)"/>
+      </div>
+      <button onclick="limparTodos()" class="px-3 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 text-xs hover:text-red-400">
+        <i class="fas fa-broom"></i>
+      </button>
+    </div>
+
+    <!-- Barra de progresso -->
+    <div class="bg-slate-800 border border-slate-700 rounded-xl p-3 mb-4">
+      <div class="flex justify-between items-center mb-1.5">
+        <span class="text-xs text-slate-400 font-semibold">Produtos contados</span>
+        <span class="text-xs font-bold text-indigo-400" id="progLabel">0 / 0</span>
+      </div>
+      <div class="progbar"><div class="progbar-inner" id="progBar" style="width:0%"></div></div>
+      <div class="flex justify-between text-xs text-slate-500 mt-1">
+        <span id="progDiverg">0 divergências</span>
+        <span id="progOk">0 corretos</span>
+      </div>
+    </div>
+
+    <!-- Lista de produtos por categoria -->
+    <div id="listaCategorias"></div>
+
+    <!-- Observações -->
+    <div class="mt-4">
+      <textarea id="obsContagem" rows="2" placeholder="Observações (opcional)…"
+        class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm text-slate-200 placeholder-slate-500 outline-none focus:border-indigo-500 resize-none"></textarea>
+    </div>
+
+  </div>
+
+  <!-- ══ TAB: RELATÓRIOS ══ -->
+  <div id="panelRelatorio" class="hidden">
+
+    <!-- Filtros de período -->
+    <div class="bg-slate-800 border border-slate-700 rounded-xl p-4 mb-4">
+      <div class="flex gap-2 flex-wrap mb-3">
+        <button class="per-btn active" onclick="setPerRel('hoje',this)">Hoje</button>
+        <button class="per-btn"        onclick="setPerRel('semana',this)">Semana</button>
+        <button class="per-btn"        onclick="setPerRel('mes',this)">Mês</button>
+        <button class="per-btn"        onclick="setPerRel('range',this)">Personalizado</button>
+      </div>
+      <div id="rangeRelatorio" class="hidden flex gap-2">
+        <input type="date" id="relIni" class="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-slate-200 outline-none focus:border-indigo-500"/>
+        <input type="date" id="relFim" class="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-slate-200 outline-none focus:border-indigo-500"/>
+        <button onclick="carregarRelatorio()" class="px-3 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500">OK</button>
+      </div>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="grid grid-cols-2 gap-3 mb-4">
+      <div class="kpi"><div class="kpi-val text-indigo-400" id="kpiTotal">0</div><div class="kpi-lbl">Contagens</div></div>
+      <div class="kpi"><div class="kpi-val text-amber-400" id="kpiDiverg">0</div><div class="kpi-lbl">Divergências</div></div>
+      <div class="kpi"><div class="kpi-val text-red-400" id="kpiPerda" style="font-size:1rem">R$ 0,00</div><div class="kpi-lbl">Perda (custo)</div></div>
+      <div class="kpi"><div class="kpi-val text-emerald-400" id="kpiSobra" style="font-size:1rem">R$ 0,00</div><div class="kpi-lbl">Sobra (custo)</div></div>
+    </div>
+
+    <!-- Filtro por tipo -->
+    <div class="flex gap-2 mb-3">
+      <select id="filtroTipoRel" onchange="carregarRelatorio()"
+        class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-indigo-500">
+        <option value="">Todos os tipos</option>
+        <option value="diaria">Diária</option>
+        <option value="semanal">Semanal</option>
+        <option value="mensal">Mensal</option>
+      </select>
+      <select id="filtroStatusRel" onchange="carregarRelatorio()"
+        class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-indigo-500">
+        <option value="">Todos os status</option>
+        <option value="pendente_aprovacao">Pendente</option>
+        <option value="aprovada">Aprovada</option>
+        <option value="rejeitada">Rejeitada</option>
+      </select>
+    </div>
+
+    <!-- Tabela de contagens -->
+    <div id="tabelaRelatorio" class="space-y-3"></div>
+
+  </div>
+
+  <!-- ══ TAB: HISTÓRICO POR PRODUTO ══ -->
+  <div id="panelHistorico" class="hidden">
+    <div class="mb-4">
+      <select id="selectProdHist" onchange="carregarHistoricoProd()"
+        class="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-200 outline-none focus:border-indigo-500">
+        <option value="">Selecione um produto…</option>
+      </select>
+    </div>
+    <!-- Filtros histórico -->
+    <div class="flex gap-2 mb-3">
+      <button class="per-btn active" onclick="setPerHist('mes',this)">Este mês</button>
+      <button class="per-btn"        onclick="setPerHist('3meses',this)">3 meses</button>
+      <button class="per-btn"        onclick="setPerHist('tudo',this)">Tudo</button>
+    </div>
+    <div id="tabelaHistorico"></div>
+  </div>
+
+</div><!-- /p-4 -->
+
+<!-- FAB SALVAR (apenas na aba nova) -->
+<button class="fab-save" id="fabSalvar" onclick="abrirResumo()">
+  <i class="fas fa-check"></i> Finalizar Contagem
+</button>
+
+<!-- MODAL RESUMO DA CONTAGEM -->
+<div class="modal-backdrop hidden" id="modalBackdrop" onclick="fecharResumo(event)">
+  <div class="modal-sheet" id="modalResumo">
+    <div class="flex items-center justify-between mb-4">
+      <div class="text-base font-bold">📋 Resumo da Contagem</div>
+      <button onclick="fecharResumoBtn()" class="w-8 h-8 rounded-lg bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center">
+        <i class="fas fa-times text-xs"></i>
+      </button>
+    </div>
+
+    <!-- Info -->
+    <div class="bg-slate-900 rounded-xl p-3 mb-4 text-sm">
+      <div class="flex justify-between"><span class="text-slate-400">Tipo</span><span id="resTyp" class="font-bold text-indigo-400"></span></div>
+      <div class="flex justify-between mt-1"><span class="text-slate-400">Operador</span><span id="resOp" class="font-bold"></span></div>
+      <div class="flex justify-between mt-1"><span class="text-slate-400">Data</span><span id="resDt" class="font-bold"></span></div>
+    </div>
+
+    <!-- KPIs -->
+    <div class="grid grid-cols-3 gap-2 mb-4">
+      <div class="kpi"><div class="kpi-val text-slate-200" id="resQtd">0</div><div class="kpi-lbl">Itens</div></div>
+      <div class="kpi"><div class="kpi-val text-amber-400" id="resDiv">0</div><div class="kpi-lbl">Diverg.</div></div>
+      <div class="kpi"><div class="kpi-val text-emerald-400 text-sm" id="resSaldo">R$ 0</div><div class="kpi-lbl">Saldo</div></div>
+    </div>
+
+    <!-- Divergências -->
+    <div class="text-xs text-slate-400 font-bold uppercase tracking-widest mb-2">Divergências encontradas</div>
+    <div id="resDivList" class="space-y-2 max-h-52 overflow-y-auto mb-4"></div>
+    <div id="resDivVazio" class="hidden text-center text-slate-500 text-sm py-4">✅ Nenhuma divergência — estoque confere!</div>
+
+    <!-- Obs preview -->
+    <div class="text-xs text-slate-500 mb-1">Observações</div>
+    <div id="resObs" class="text-xs text-slate-300 bg-slate-900 rounded-lg p-2 mb-4 min-h-8"></div>
+
+    <div class="text-xs text-amber-400 font-semibold mb-4">
+      <i class="fas fa-info-circle mr-1"></i>
+      A contagem será salva com status <strong>Pendente de Aprovação</strong>. O admin revisará e aplicará os ajustes.
+    </div>
+
+    <div class="flex gap-3">
+      <button onclick="fecharResumoBtn()" class="flex-1 py-3 rounded-xl bg-slate-700 text-slate-300 font-bold text-sm hover:bg-slate-600">
+        Voltar e editar
+      </button>
+      <button onclick="confirmarSalvar()" id="btnConfirmarSalvar"
+        class="flex-1 py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-500 flex items-center justify-center gap-2">
+        <i class="fas fa-paper-plane"></i> Enviar
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DETALHE CONTAGEM (admin review) -->
+<div class="modal-backdrop hidden" id="backdropDetalhe" onclick="fecharDetalhe(event)">
+  <div class="modal-sheet" id="modalDetalhe">
+    <div class="flex items-center justify-between mb-4">
+      <div class="text-base font-bold" id="detalheTitle">Detalhe da Contagem</div>
+      <button onclick="fecharDetalheBtn()" class="w-8 h-8 rounded-lg bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center">
+        <i class="fas fa-times text-xs"></i>
+      </button>
+    </div>
+    <div id="detalheConteudo"></div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- SCRIPTS -->
+<script src="core.js"></script>
+<script src="./services/permissoesService.js"></script>
+<script src="./services/syncService.js"></script>
+<script src="./services/auditService.js"></script>
+<script src="./services/syncMonitor.js"></script>
+<script src="./services/backupService.js"></script>
+<script src="./services/userService.js"></script>
+<script src="./services/estoqueService.js"></script>
+<script src="./services/contagemService.js"></script>
+<script src="./services/financeiroService.js"></script>
+<script src="./services/vendasService.js"></script>
+<script src="./services/aprovacaoService.js"></script>
+
+<script>
+'use strict';
+
+/* ── Aliases ── */
+const { AuthService, Utils, ContagemService, EstoqueService } = window.CH;
+
+/* ── Estado local ── */
+let _tab       = 'nova';
+let _tipo      = 'diaria';
+let _prodMap   = {};   // { produtoId: { prodData, inputEl, rowEl } }
+let _snapshot  = {};   // categorias → produtos (cego)
+let _perRel    = 'hoje';
+let _relIni    = '';
+let _relFim    = '';
+let _perHist   = 'mes';
+let _detalheAtual = null;
+
+const _moeda = v => 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const _fmt   = v => Number(v).toLocaleString('pt-BR');
+
+/* ── Toast ── */
+let _toastTimer;
+function toast(msg, dur = 2800) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), dur);
+}
+
+/* ── Auth guard ── */
+window.addEventListener('DOMContentLoaded', () => {
+  if (!AuthService?.getRole()) { location.href = 'index.html'; return; }
+  document.getElementById('topSubtitle').textContent =
+    AuthService.getNome() + ' · ' + new Date().toLocaleDateString('pt-BR');
+
+  // Se colaborador: só pode criar contagem
+  if (!AuthService.isAdmin()) {
+    document.getElementById('tabHistorico').style.display = 'none';
+  }
+
+  inicializarNova();
+  atualizarBadge();
+});
+
+/* ══════════════════════════════════════════════
+   TABS
+══════════════════════════════════════════════ */
+function setTab(tab) {
+  _tab = tab;
+  ['nova','relatorio','historico'].forEach(t => {
+    document.getElementById('panel' + t.charAt(0).toUpperCase() + t.slice(1)).classList.toggle('hidden', t !== tab);
+    document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1)).classList.toggle('active', t === tab);
+  });
+  document.getElementById('fabSalvar').style.display = (tab === 'nova') ? '' : 'none';
+  document.getElementById('btnExport').classList.toggle('hidden', tab !== 'relatorio');
+
+  if (tab === 'relatorio') carregarRelatorio();
+  if (tab === 'historico') inicializarHistorico();
+}
+
+/* ══════════════════════════════════════════════
+   NOVA CONTAGEM
+══════════════════════════════════════════════ */
+const _tipoDesc = {
+  diaria:  'Contagem rápida do dia — ideal para itens de alto giro.',
+  semanal: 'Revisão semanal completa do inventário.',
+  mensal:  'Inventário mensal completo. Registra e reconcilia divergências.',
+};
+
+function setTipo(tipo, btn) {
+  _tipo = tipo;
+  document.querySelectorAll('[data-tipo]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tipoDesc').textContent = _tipoDesc[tipo];
+}
+
+function inicializarNova() {
+  _prodMap  = {};
+  _snapshot = ContagemService.getSnapshotCego();
+  renderizarLista(_snapshot);
+  atualizarProgresso();
+}
+
+function renderizarLista(cats) {
+  const cont = document.getElementById('listaCategorias');
+  cont.innerHTML = '';
+  const entries = Object.entries(cats).sort(([a],[b]) => a.localeCompare(b));
+
+  for (const [cat, prods] of entries) {
+    const qtd = prods.length;
+    const catId = 'cat_' + cat.replace(/\W/g,'_');
+
+    const wrapper = document.createElement('div');
+
+    // Header categoria
+    const hdr = document.createElement('div');
+    hdr.className = 'cat-hdr';
+    hdr.innerHTML = `
+      <div class="flex items-center gap-2">
+        <i class="fas fa-chevron-right text-xs text-slate-500 transition-transform" id="ico_${catId}"></i>
+        <span class="text-sm font-bold">${cat}</span>
+        <span class="text-xs text-slate-500">(${qtd} itens)</span>
+      </div>
+      <span class="text-xs text-indigo-400 font-bold" id="catCont_${catId}">0/${qtd}</span>`;
+    hdr.onclick = () => toggleCat(catId);
+    wrapper.appendChild(hdr);
+
+    // Body categoria
+    const body = document.createElement('div');
+    body.className = 'cat-body';
+    body.id = 'body_' + catId;
+
+    for (const p of prods) {
+      const row = document.createElement('div');
+      row.className = 'prod-row';
+      row.id = 'row_' + p.produtoId;
+
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.min  = '0';
+      input.step = '1';
+      input.className = 'qty-input';
+      input.placeholder = '—';
+      input.dataset.prodId = p.produtoId;
+      input.dataset.catId  = catId;
+      input.setAttribute('inputmode', 'numeric');
+      input.addEventListener('input', () => onInputChange(input, p));
+      input.addEventListener('focus', () => { if (input.value === '0') input.value = ''; });
+
+      row.innerHTML = `
+        <div class="flex-1 min-w-0">
+          <div class="prod-nome truncate">${p.nome}</div>
+          <div class="prod-unid">${p.unidade}</div>
+        </div>
+        <span class="dif-badge dif-zero" id="dif_${p.produtoId}">—</span>`;
+      row.appendChild(input);
+
+      _prodMap[p.produtoId] = { prod: p, input, row };
+      body.appendChild(row);
+    }
+
+    wrapper.appendChild(body);
+    cont.appendChild(wrapper);
+  }
+
+  // Abrir primeira categoria automaticamente
+  if (entries.length > 0) {
+    const firstCatId = 'cat_' + entries[0][0].replace(/\W/g,'_');
+    toggleCat(firstCatId);
+  }
+}
+
+function toggleCat(catId) {
+  const body = document.getElementById('body_' + catId);
+  const ico  = document.getElementById('ico_'  + catId);
+  if (!body) return;
+  body.classList.toggle('open');
+  ico?.classList.toggle('rotate-90', body.classList.contains('open'));
+}
+
+function onInputChange(input, prod) {
+  const val   = input.value;
+  const num   = val === '' ? null : Number(val);
+  const difEl = document.getElementById('dif_' + prod.produtoId);
+  const row   = document.getElementById('row_' + prod.produtoId);
+
+  input.classList.remove('neg','pos');
+  difEl.classList.remove('dif-neg','dif-pos','dif-zero');
+  row.classList.remove('divergente','ok');
+
+  if (num === null || isNaN(num)) {
+    difEl.textContent = '—';
+    difEl.classList.add('dif-zero');
+  } else {
+    // diferença será calculada no momento do save (não revelamos sistema)
+    difEl.textContent = '✓';
+    difEl.classList.add('dif-zero');
+    row.classList.add('ok');
+    input.classList.add('pos');
+  }
+
+  atualizarProgresso(input.dataset.catId);
+}
+
+function atualizarProgresso(catId) {
+  const total    = Object.keys(_prodMap).length;
+  const contados = Object.values(_prodMap).filter(m => m.input.value !== '' && !isNaN(Number(m.input.value))).length;
+  const pct      = total ? Math.round((contados / total) * 100) : 0;
+
+  document.getElementById('progLabel').textContent = `${contados} / ${total}`;
+  document.getElementById('progBar').style.width   = pct + '%';
+  document.getElementById('progDiverg').textContent = '';
+  document.getElementById('progOk').textContent     = `${contados} contados`;
+
+  // Atualizar contador da categoria
+  if (catId) {
+    const bodyEl = document.getElementById('body_' + catId);
+    if (!bodyEl) return;
+    const inputs = bodyEl.querySelectorAll('.qty-input');
+    const catContEl = document.getElementById('catCont_' + catId);
+    if (!catContEl) return;
+    const catCont  = [...inputs].filter(i => i.value !== '' && !isNaN(Number(i.value))).length;
+    catContEl.textContent = `${catCont}/${inputs.length}`;
+    if (catCont === inputs.length) catContEl.style.color = '#10b981';
+    else catContEl.style.color = '';
+  }
+}
+
+function filtrarProdutos(busca) {
+  const b = busca.toLowerCase().trim();
+  Object.values(_prodMap).forEach(({ prod, row }) => {
+    const visivel = !b || prod.nome.toLowerCase().includes(b) || (prod.categoria||'').toLowerCase().includes(b);
+    row.style.display = visivel ? '' : 'none';
+    // Garante que o corpo da categoria esteja aberto
+    if (visivel && b) {
+      const catId = 'cat_' + (prod.categoria||'Sem categoria').replace(/\W/g,'_');
+      const body  = document.getElementById('body_' + catId);
+      if (body && !body.classList.contains('open')) toggleCat(catId);
+    }
+  });
+}
+
+function limparTodos() {
+  if (!confirm('Limpar todas as quantidades digitadas?')) return;
+  Object.values(_prodMap).forEach(({ input, row }) => {
+    input.value = '';
+    input.classList.remove('neg','pos');
+    const dif = document.getElementById('dif_' + input.dataset.prodId);
+    if (dif) { dif.textContent = '—'; dif.className = 'dif-badge dif-zero'; }
+    row.classList.remove('divergente','ok');
+  });
+  atualizarProgresso();
+}
+
+/* ══════════════════════════════════════════════
+   MODAL RESUMO
+══════════════════════════════════════════════ */
+function abrirResumo() {
+  // Montar lista de itensContados
+  const itensContados = [];
+  Object.values(_prodMap).forEach(({ prod, input }) => {
+    if (input.value !== '' && !isNaN(Number(input.value))) {
+      itensContados.push({ produtoId: prod.produtoId, estoqueContado: Number(input.value) });
+    }
+  });
+
+  if (!itensContados.length) {
+    toast('⚠️ Digite ao menos uma quantidade antes de finalizar.');
+    return;
+  }
+
+  // Calcular divergências (agora consultamos o sistema para o resumo)
+  const prods = EstoqueService.getProdutos();
+  const prodById = {};
+  prods.forEach(p => prodById[p.id] = p);
+
+  let qtdDiv = 0;
+  let saldoCusto = 0;
+  const divList = [];
+
+  for (const ic of itensContados) {
+    const p    = prodById[ic.produtoId];
+    if (!p) continue;
+    const sis  = p.estoqueAtual ?? p.qtdUn ?? 0;
+    const dif  = ic.estoqueContado - sis;
+    if (dif !== 0) {
+      qtdDiv++;
+      const vDif = dif * (p.precoCusto || 0);
+      saldoCusto += vDif;
+      divList.push({ nome: p.nome, sis, contado: ic.estoqueContado, dif, vDif });
+    }
+  }
+
+  // Preencher modal
+  document.getElementById('resTyp').textContent  = _tipo.charAt(0).toUpperCase() + _tipo.slice(1);
+  document.getElementById('resOp').textContent   = AuthService.getNome();
+  document.getElementById('resDt').textContent   = new Date().toLocaleDateString('pt-BR');
+  document.getElementById('resQtd').textContent  = itensContados.length;
+  document.getElementById('resDiv').textContent  = qtdDiv;
+  document.getElementById('resSaldo').textContent = _moeda(saldoCusto);
+  document.getElementById('resSaldo').style.color = saldoCusto >= 0 ? '#6ee7b7' : '#fca5a5';
+  document.getElementById('resObs').textContent  = document.getElementById('obsContagem').value || '(sem observações)';
+
+  const listEl  = document.getElementById('resDivList');
+  const vaziEl  = document.getElementById('resDivVazio');
+  listEl.innerHTML = '';
+
+  if (!divList.length) {
+    listEl.classList.add('hidden');
+    vaziEl.classList.remove('hidden');
+  } else {
+    listEl.classList.remove('hidden');
+    vaziEl.classList.add('hidden');
+    divList.sort((a,b) => Math.abs(b.dif) - Math.abs(a.dif)).forEach(d => {
+      const neg = d.dif < 0;
+      listEl.innerHTML += `
+        <div class="flex items-center justify-between bg-slate-900 rounded-lg px-3 py-2">
+          <div>
+            <div class="text-xs font-semibold">${d.nome}</div>
+            <div class="text-xs text-slate-500">Sistema: ${_fmt(d.sis)} → Contado: ${_fmt(d.contado)}</div>
+          </div>
+          <div class="text-right">
+            <div class="dif-badge ${neg ? 'dif-neg' : 'dif-pos'}">${d.dif > 0 ? '+' : ''}${_fmt(d.dif)}</div>
+            <div class="text-xs mt-0.5 ${neg ? 'text-red-400' : 'text-emerald-400'}">${_moeda(d.vDif)}</div>
+          </div>
+        </div>`;
+    });
+  }
+
+  // Guardar para usar no confirmar
+  document.getElementById('modalBackdrop')._itensContados = itensContados;
+  document.getElementById('modalBackdrop').classList.remove('hidden');
+}
+
+function fecharResumo(e) {
+  if (e && e.target !== document.getElementById('modalBackdrop')) return;
+  fecharResumoBtn();
+}
+
+function fecharResumoBtn() {
+  document.getElementById('modalBackdrop').classList.add('hidden');
+}
+
+async function confirmarSalvar() {
+  const btn = document.getElementById('btnConfirmarSalvar');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando…';
+
+  try {
+    const itensContados = document.getElementById('modalBackdrop')._itensContados;
+    const obs = document.getElementById('obsContagem').value;
+    ContagemService.salvarContagem({ tipo: _tipo, itensContados, observacoes: obs });
+
+    fecharResumoBtn();
+    toast('✅ Contagem enviada para aprovação!');
+    limparTodos();
+    atualizarBadge();
+
+    // Ir para histórico
+    setTimeout(() => setTab('relatorio'), 1200);
+  } catch (e) {
+    toast('❌ Erro: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-paper-plane"></i> Enviar';
+  }
+}
+
+/* ══════════════════════════════════════════════
+   RELATÓRIOS
+══════════════════════════════════════════════ */
+function setPerRel(per, btn) {
+  _perRel = per;
+  document.querySelectorAll('#panelRelatorio .per-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const rangeEl = document.getElementById('rangeRelatorio');
+  rangeEl.classList.toggle('hidden', per !== 'range');
+  if (per !== 'range') carregarRelatorio();
+}
+
+function _getRangeRel() {
+  const hoje   = Utils.todayISO();
+  if (_perRel === 'hoje')   return { de: hoje, ate: hoje };
+  if (_perRel === 'semana') {
+    const d = new Date(); d.setDate(d.getDate() - 6);
+    return { de: d.toISOString().slice(0,10), ate: hoje };
+  }
+  if (_perRel === 'mes') {
+    const d = new Date(); return { de: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`, ate: hoje };
+  }
+  if (_perRel === 'range') {
+    return { de: document.getElementById('relIni').value || '', ate: document.getElementById('relFim').value || '' };
+  }
+  return { de: '', ate: '' };
+}
+
+function carregarRelatorio() {
+  const { de, ate } = _getRangeRel();
+  const tipo   = document.getElementById('filtroTipoRel').value   || undefined;
+  const status = document.getElementById('filtroStatusRel').value || undefined;
+
+  const resumo = ContagemService.getResumoPeriodo({ dataDe: de || undefined, dataAte: ate || undefined });
+  document.getElementById('kpiTotal').textContent  = resumo.totalContagens;
+  document.getElementById('kpiDiverg').textContent = resumo.totalDivergencias;
+  document.getElementById('kpiPerda').textContent  = _moeda(resumo.valorPerdaTotalCusto);
+  document.getElementById('kpiSobra').textContent  = _moeda(resumo.valorSobraTotalCusto);
+
+  const lista = ContagemService.getContagens({
+    tipo, status,
+    dataDe: de || undefined,
+    dataAte: ate || undefined,
+  });
+
+  const cont = document.getElementById('tabelaRelatorio');
+  if (!lista.length) {
+    cont.innerHTML = '<div class="text-center text-slate-500 text-sm py-12">Nenhuma contagem no período.</div>';
+    return;
+  }
+
+  const _statusBadge = s => {
+    if (s === 'pendente_aprovacao') return '<span class="status-badge s-pend"><i class="fas fa-clock text-xs"></i> Pendente</span>';
+    if (s === 'aprovada')           return '<span class="status-badge s-aprov"><i class="fas fa-check text-xs"></i> Aprovada</span>';
+    return '<span class="status-badge s-rej"><i class="fas fa-times text-xs"></i> Rejeitada</span>';
+  };
+
+  const _tipoIcon = t => t === 'diaria' ? '📅' : t === 'semanal' ? '📆' : '🗓️';
+
+  cont.innerHTML = lista.map(c => `
+    <div class="bg-slate-800 border border-slate-700 rounded-xl p-4 anim-in" onclick="abrirDetalhe('${c.id}')">
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <span class="text-base">${_tipoIcon(c.tipo)}</span>
+          <span class="text-sm font-bold capitalize">${c.tipo}</span>
+          ${_statusBadge(c.status)}
+        </div>
+        <div class="text-xs text-slate-500">${c.dataCurta}</div>
+      </div>
+      <div class="flex justify-between text-xs text-slate-400 mb-2">
+        <span>Por: <span class="text-slate-200 font-semibold">${c.operador}</span></span>
+        <span>${c.totais?.qtdItens || 0} itens · ${c.totais?.qtdDivergentes || 0} diverg.</span>
+      </div>
+      <div class="flex justify-between text-xs">
+        <span class="text-red-400">Perda: ${_moeda(Math.abs(Math.min(0, c.totais?.valorDivergCusto || 0)))}</span>
+        <span class="text-emerald-400">Sobra: ${_moeda(Math.max(0, c.totais?.valorDivergCusto || 0))}</span>
+        <span class="text-indigo-400 font-bold"><i class="fas fa-chevron-right text-xs"></i> Ver detalhes</span>
+      </div>
+    </div>`).join('');
+}
+
+function exportarCSV() {
+  const { de, ate } = _getRangeRel();
+  const lista = ContagemService.getContagens({ dataDe: de || undefined, dataAte: ate || undefined });
+  if (!lista.length) { toast('Nenhuma contagem para exportar.'); return; }
+
+  const rows = [['Data','Tipo','Operador','Status','Itens','Divergências','Perda Custo (R$)','Sobra Custo (R$)']];
+  for (const c of lista) {
+    const perda = Math.abs(Math.min(0, c.totais?.valorDivergCusto || 0));
+    const sobra = Math.max(0, c.totais?.valorDivergCusto || 0);
+    rows.push([c.dataCurta, c.tipo, c.operador, c.status, c.totais?.qtdItens||0, c.totais?.qtdDivergentes||0,
+      perda.toFixed(2), sobra.toFixed(2)]);
+  }
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `contagens_${de||'tudo'}_${ate||'tudo'}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('✅ CSV exportado!');
+}
+
+/* ══════════════════════════════════════════════
+   MODAL DETALHE CONTAGEM
+══════════════════════════════════════════════ */
+function abrirDetalhe(id) {
+  const lista = ContagemService.getContagens();
+  const c     = lista.find(x => x.id === id);
+  if (!c) return;
+  _detalheAtual = c;
+
+  const isAdmin = AuthService.isAdmin();
+  const pend    = c.status === 'pendente_aprovacao';
+
+  document.getElementById('detalheTitle').innerHTML =
+    `Contagem ${c.tipo.charAt(0).toUpperCase()+c.tipo.slice(1)} — ${c.dataCurta}`;
+
+  const divItens = (c.itens||[]).filter(i => i.diferenca !== 0).sort((a,b) => Math.abs(b.diferenca)-Math.abs(a.diferenca));
+  const okItens  = (c.itens||[]).filter(i => i.diferenca === 0);
+
+  let html = `
+    <div class="grid grid-cols-2 gap-2 mb-4">
+      <div class="kpi"><div class="kpi-val text-slate-200">${c.totais?.qtdItens||0}</div><div class="kpi-lbl">Itens</div></div>
+      <div class="kpi"><div class="kpi-val text-amber-400">${c.totais?.qtdDivergentes||0}</div><div class="kpi-lbl">Divergências</div></div>
+      <div class="kpi" style="font-size:.85rem"><div class="kpi-val text-red-400" style="font-size:1rem">${_moeda(Math.abs(Math.min(0,c.totais?.valorDivergCusto||0)))}</div><div class="kpi-lbl">Perda</div></div>
+      <div class="kpi" style="font-size:.85rem"><div class="kpi-val text-emerald-400" style="font-size:1rem">${_moeda(Math.max(0,c.totais?.valorDivergCusto||0))}</div><div class="kpi-lbl">Sobra</div></div>
+    </div>`;
+
+  if (c.observacoes) {
+    html += `<div class="text-xs text-slate-400 mb-3 bg-slate-900 rounded-lg p-2"><i class="fas fa-comment-alt mr-1"></i>${c.observacoes}</div>`;
+  }
+
+  if (divItens.length) {
+    html += `<div class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Divergências (${divItens.length})</div>
+      <div class="space-y-2 mb-4 max-h-56 overflow-y-auto">`;
+    for (const item of divItens) {
+      const neg = item.diferenca < 0;
+      html += `<div class="flex items-center justify-between bg-slate-900 rounded-lg px-3 py-2">
+        <div>
+          <div class="text-xs font-semibold">${item.nome}</div>
+          <div class="text-xs text-slate-500">${item.categoria} · ${item.unidade}</div>
+          <div class="text-xs text-slate-400">Sist: ${_fmt(item.estoqueSistema)} → Cont: ${_fmt(item.estoqueContado)}</div>
+        </div>
+        <div class="text-right">
+          <div class="dif-badge ${neg?'dif-neg':'dif-pos'}">${item.diferenca>0?'+':''}${_fmt(item.diferenca)}</div>
+          <div class="text-xs mt-0.5 ${neg?'text-red-400':'text-emerald-400'}">${_moeda(item.valorDiferenca)}</div>
+        </div>
+      </div>`;
+    }
+    html += '</div>';
+  } else {
+    html += `<div class="text-center text-emerald-400 text-sm py-3 mb-3">✅ Sem divergências — estoque confere!</div>`;
+  }
+
+  // Botões admin
+  if (isAdmin && pend) {
+    html += `
+      <div class="text-xs text-amber-400 font-semibold mb-3">
+        <i class="fas fa-info-circle mr-1"></i>
+        Ao aprovar, os ajustes de estoque serão aplicados automaticamente para itens divergentes.
+      </div>
+      <div class="flex gap-3">
+        <button onclick="rejeitarContagem('${c.id}')" class="flex-1 py-3 rounded-xl bg-red-900 text-red-300 font-bold text-sm hover:bg-red-800">
+          <i class="fas fa-times mr-1"></i> Rejeitar
+        </button>
+        <button onclick="aprovarContagem('${c.id}')" class="flex-1 py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-500">
+          <i class="fas fa-check mr-1"></i> Aprovar e Ajustar
+        </button>
+      </div>`;
+  } else if (c.status === 'aprovada') {
+    html += `<div class="text-center text-xs text-emerald-400 font-semibold py-2">
+      <i class="fas fa-check-circle mr-1"></i>
+      Aprovada por ${c.aprovadoPor} em ${new Date(c.aprovadoEm).toLocaleString('pt-BR')}
+    </div>`;
+  } else if (c.status === 'rejeitada') {
+    html += `<div class="text-center text-xs text-red-400 font-semibold py-2">
+      <i class="fas fa-times-circle mr-1"></i>
+      Rejeitada por ${c.rejeitadoPor}${c.motivoRejeicao ? ' — ' + c.motivoRejeicao : ''}
+    </div>`;
+  }
+
+  document.getElementById('detalheConteudo').innerHTML = html;
+  document.getElementById('backdropDetalhe').classList.remove('hidden');
+}
+
+async function aprovarContagem(id) {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Aplicando…';
+  try {
+    const res = await ContagemService.aplicarAjustes(id);
+    fecharDetalheBtn();
+    toast(res.ok ? `✅ ${res.itensAjustados.length} ajustes aplicados!` : `⚠️ ${res.erros.length} erro(s) ao ajustar.`);
+    atualizarBadge();
+    carregarRelatorio();
+  } catch (e) {
+    toast('❌ ' + e.message);
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-check"></i> Aprovar e Ajustar';
+  }
+}
+
+function rejeitarContagem(id) {
+  const motivo = prompt('Motivo da rejeição (opcional):') ?? '';
+  try {
+    ContagemService.rejeitarContagem(id, motivo);
+    fecharDetalheBtn();
+    toast('🚫 Contagem rejeitada.');
+    atualizarBadge();
+    carregarRelatorio();
+  } catch(e) {
+    toast('❌ ' + e.message);
+  }
+}
+
+function fecharDetalhe(e) {
+  if (e && e.target !== document.getElementById('backdropDetalhe')) return;
+  fecharDetalheBtn();
+}
+function fecharDetalheBtn() {
+  document.getElementById('backdropDetalhe').classList.add('hidden');
+}
+
+/* ══════════════════════════════════════════════
+   HISTÓRICO POR PRODUTO
+══════════════════════════════════════════════ */
+let _perHistEl = null;
+
+function inicializarHistorico() {
+  const sel   = document.getElementById('selectProdHist');
+  const prods = EstoqueService.getProdutos().filter(p => p.ativo !== false)
+    .sort((a,b) => a.nome.localeCompare(b.nome));
+
+  sel.innerHTML = '<option value="">Selecione um produto…</option>';
+  for (const p of prods) {
+    sel.innerHTML += `<option value="${p.id}">${p.nome}</option>`;
+  }
+}
+
+function setPerHist(per, btn) {
+  _perHist = per;
+  document.querySelectorAll('#panelHistorico .per-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  carregarHistoricoProd();
+}
+
+function carregarHistoricoProd() {
+  const prodId = document.getElementById('selectProdHist').value;
+  const cont   = document.getElementById('tabelaHistorico');
+
+  if (!prodId) { cont.innerHTML = ''; return; }
+
+  const hoje = Utils.todayISO();
+  let dataDe;
+  if (_perHist === 'mes')    { const d = new Date(); dataDe = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`; }
+  else if (_perHist === '3meses') { const d = new Date(); d.setMonth(d.getMonth()-3); dataDe = d.toISOString().slice(0,10); }
+  else dataDe = undefined;
+
+  const hist = ContagemService.getHistoricoProduto(prodId, { dataDe, dataAte: hoje });
+
+  if (!hist.length) {
+    cont.innerHTML = '<div class="text-center text-slate-500 text-sm py-12">Nenhuma contagem encontrada para este produto no período.</div>';
+    return;
+  }
+
+  cont.innerHTML = `
+    <table class="htable">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Tipo</th>
+          <th>Sistema</th>
+          <th>Contado</th>
+          <th>Dif.</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${hist.map(h => {
+          const neg = h.diferenca < 0;
+          const pos = h.diferenca > 0;
+          const sBadge = h.status === 'aprovada' ? 'text-emerald-400' : h.status === 'rejeitada' ? 'text-red-400' : 'text-amber-400';
+          return `<tr>
+            <td>${h.dataCurta}</td>
+            <td class="capitalize">${h.tipo}</td>
+            <td class="text-center">${_fmt(h.estoqueSistema)}</td>
+            <td class="text-center font-bold">${_fmt(h.estoqueContado)}</td>
+            <td class="text-center font-bold ${neg?'text-red-400':pos?'text-emerald-400':'text-slate-400'}">
+              ${h.diferenca !== 0 ? (h.diferenca > 0 ? '+' : '') + _fmt(h.diferenca) : '—'}
+            </td>
+            <td class="${sBadge} text-xs font-bold capitalize">${h.status.replace('pendente_aprovacao','Pendente')}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+}
+
+/* ══════════════════════════════════════════════
+   BADGE
+══════════════════════════════════════════════ */
+function atualizarBadge() {
+  if (!AuthService.isAdmin()) return;
+  const pend = ContagemService.getContagensPendentes().length;
+  const el   = document.getElementById('badgePendentes');
+  if (pend > 0) {
+    el.textContent = pend + ' pendente' + (pend > 1 ? 's' : '');
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+  }
+}
+
+// Atualiza badge ao receber evento
+window.CH.EventBus?.on('contagem:salva',    atualizarBadge);
+window.CH.EventBus?.on('contagem:aprovada', atualizarBadge);
+window.CH.EventBus?.on('contagem:rejeitada',atualizarBadge);
+</script>
+</body>
+</html>
