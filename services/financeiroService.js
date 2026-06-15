@@ -34,6 +34,17 @@
   function _lancar({ tipo, categoria, descricao, valor, formaPgto = '', referencia = '', extra = {} }) {
     if (!valor || valor <= 0) return null;
 
+    // FIX #4: Idempotência — impede duplo lançamento para a mesma referência+tipo
+    if (referencia) {
+      const jaExiste = Store.getFinanceiro().some(
+        l => l.referencia === referencia && l.tipo === tipo
+      );
+      if (jaExiste) {
+        console.info(`[Financeiro] Lançamento ignorado — referencia "${referencia}" tipo "${tipo}" já existe`);
+        return null;
+      }
+    }
+
     const lancamento = {
       id:         Utils.generateId(),
       tipo,       // 'receita' | 'despesa' | 'estorno'
@@ -58,17 +69,6 @@
 
   /** Registra receita de uma venda */
   function registrarReceita(venda) {
-    // FIX [ALTO]: sem idempotência, uma segunda chamada com o mesmo vendaId
-    // (retry de sync, reconexão Firebase, duplo evento) duplicava o lançamento.
-    if (venda?.id) {
-      const jaExiste = Store.getFinanceiro().some(
-        l => l.referencia === venda.id && l.tipo === 'receita'
-      );
-      if (jaExiste) {
-        console.info(`[FinanceiroService] registrarReceita ignorado — venda ${venda.id} já lançada.`);
-        return null;
-      }
-    }
     return _lancar({
       tipo:       'receita',
       categoria:  'venda',
@@ -86,16 +86,13 @@
 
   /** Registra estorno de uma venda cancelada */
   function registrarEstorno(venda) {
-    // FIX [MÉDIO]: idempotência — evita estorno duplo em retry
-    if (venda?.id) {
-      const jaExiste = Store.getFinanceiro().some(
-        l => l.referencia === venda.id && l.tipo === 'estorno'
-      );
-      if (jaExiste) {
-        console.info(`[FinanceiroService] registrarEstorno ignorado — venda ${venda.id} já estornada.`);
-        return null;
-      }
-    }
+    // Busca a receita original desta venda para correlacionar o estorno
+    // ao mesmo dia no fluxo de caixa (regime de competência). dataCurta
+    // do lançamento permanece a data do cancelamento — getCaixaDia()
+    // (fechamento físico) precisa registrar a saída no dia em que ocorreu.
+    const receitaOriginal = Store.getFinanceiro().find(
+      l => l.referencia === venda.id && l.tipo === 'receita'
+    );
     return _lancar({
       tipo:       'estorno',
       categoria:  'cancelamento',
@@ -103,6 +100,7 @@
       valor:      venda.total,
       formaPgto:  venda.formaPgto,
       referencia: venda.id,
+      extra: receitaOriginal ? { dataReferenciaOriginal: receitaOriginal.dataCurta } : {},
     });
   }
 
@@ -168,12 +166,22 @@
     // Agrupa por dia
     const dias = {};
     getLancamentos({ dataDe, dataAte }).forEach(l => {
-      if (!dias[l.dataCurta]) {
-        dias[l.dataCurta] = { data: l.dataCurta, receitas: 0, despesas: 0, estornos: 0, lucro: 0 };
+      // Estornos são correlacionados ao dia da receita original (regime de
+      // competência), para que receita+estorno se neutralizem no mesmo dia
+      // no gráfico de resultado — mesmo que o cancelamento tenha ocorrido
+      // em outra data. Se esse dia ficar fora do range consultado, o
+      // estorno pertence ao gráfico de outro período e é ignorado aqui.
+      let dataAgrupamento = l.dataCurta;
+      if (l.tipo === 'estorno' && l.dataReferenciaOriginal) {
+        if (l.dataReferenciaOriginal < dataDe || l.dataReferenciaOriginal > dataAte) return;
+        dataAgrupamento = l.dataReferenciaOriginal;
       }
-      if (l.tipo === 'receita') { dias[l.dataCurta].receitas += l.valor; dias[l.dataCurta].lucro += (l.lucro || 0); }
-      if (l.tipo === 'despesa') dias[l.dataCurta].despesas += l.valor;
-      if (l.tipo === 'estorno') dias[l.dataCurta].estornos += l.valor;
+      if (!dias[dataAgrupamento]) {
+        dias[dataAgrupamento] = { data: dataAgrupamento, receitas: 0, despesas: 0, estornos: 0, lucro: 0 };
+      }
+      if (l.tipo === 'receita') { dias[dataAgrupamento].receitas += l.valor; dias[dataAgrupamento].lucro += (l.lucro || 0); }
+      if (l.tipo === 'despesa') dias[dataAgrupamento].despesas += l.valor;
+      if (l.tipo === 'estorno') dias[dataAgrupamento].estornos += l.valor;
     });
 
     return Object.values(dias)
@@ -182,27 +190,14 @@
   }
 
   function getResumoMes(ano = new Date().getFullYear(), mes = new Date().getMonth() + 1) {
-    const dataDe  = `${ano}-${String(mes).padStart(2,'0')}-01`;
+    const dataDe = `${ano}-${String(mes).padStart(2,'0')}-01`;
     const dataAte = `${ano}-${String(mes).padStart(2,'0')}-31`;
-    // FIX [ALTO]: 'caixa = getCaixaDia(dataDe)' estava calculando só o dia 1 do mês
-    // (getCaixaDia recebe UMA data, não um range) e o resultado nunca era usado — dead code.
-    // Removido. getLancamentos já faz o range correto com dataDe/dataAte.
+    const caixa  = getCaixaDia(dataDe); // usa range
     const lancamentos = getLancamentos({ dataDe, dataAte });
     const receitas = lancamentos.filter(l => l.tipo === 'receita').reduce((s, l) => s + l.valor, 0);
     const despesas = lancamentos.filter(l => l.tipo === 'despesa').reduce((s, l) => s + l.valor, 0);
-    const estornos = lancamentos.filter(l => l.tipo === 'estorno').reduce((s, l) => s + l.valor, 0);
     const lucro    = lancamentos.filter(l => l.tipo === 'receita').reduce((s, l) => s + (l.lucro || 0), 0);
-    const porForma = {};
-    lancamentos.filter(l => l.tipo === 'receita').forEach(l => {
-      const f = l.formaPgto || 'Outros';
-      porForma[f] = (porForma[f] || 0) + l.valor;
-    });
-    return {
-      mes: `${ano}-${String(mes).padStart(2,'0')}`,
-      receitas, despesas, estornos, lucro,
-      saldo: receitas - despesas - estornos,
-      porForma,
-    };
+    return { mes: `${ano}-${String(mes).padStart(2,'0')}`, receitas, despesas, saldo: receitas - despesas, lucro };
   }
 
   // Exportar CSV

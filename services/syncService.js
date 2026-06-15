@@ -41,8 +41,13 @@
   // ── Colapsar itens duplicados ────────────────────────────────────
   // Vendas NUNCA são colapsadas (cada venda é um documento único).
   // Outros módulos (estoque, config, fiado, etc.) sobrescrevem o pendente.
+  // FIX #2: coleções que NUNCA colapsam — cada registro é único e acumulativo.
+  // Colapsar saidas/financeiro/ponto apagava registros anteriores quando um novo
+  // era enfileirado antes do Firebase processar o anterior.
+  const _NUNCA_COLAPSAR = new Set(['vendas', 'saidas', 'financeiro', 'movimentacoes', 'ponto']);
+
   function _colapsar(q, acao, colecao, dados) {
-    if (colecao === 'vendas') return false; // FIX: vendas nunca colapsam
+    if (_NUNCA_COLAPSAR.has(colecao)) return false; // FIX #2: proteção ampliada
     const idx = q.findIndex(i =>
       i.status   === 'pendente' &&
       i.acao     === acao &&
@@ -77,6 +82,29 @@
     _saveQueue(q);
     UIService_setDot(false);
     _scheduleProcess(500);
+  }
+
+  // ── Atualizar snapshot de itens já enfileirados ───────────────────
+  // Usado pelo pull() ao mesclar coleções append-only: o array local
+  // pode passar a conter registros vindos da nuvem que o snapshot já
+  // enfileirado não tinha. Sem isto, o próximo 'salvar' sobrescreveria
+  // o Firestore com um array mais antigo, descartando esses registros.
+  function atualizarPendentes(colecao, dados) {
+    const q = _loadQueue();
+    let alterado = false;
+    q.forEach(i => {
+      if (i.colecao === colecao && i.acao === 'salvar' &&
+          (i.status === 'pendente' || i.status === 'erro')) {
+        i.dados = dados;
+        if (i.status === 'erro') {
+          i.status = 'pendente';
+          i.tentativas = 0;
+          i.proximaTentativa = Date.now();
+        }
+        alterado = true;
+      }
+    });
+    if (alterado) _saveQueue(q);
   }
 
   // ── Processar um item ────────────────────────────────────────────
@@ -318,6 +346,7 @@
   // ── Exportar ─────────────────────────────────────────────────────
   window.CH.SyncQueue = {
     enqueue,
+    atualizarPendentes,
     processar,
     getStatus,
     reenviarErros,
