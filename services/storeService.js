@@ -25,19 +25,21 @@
       movimentacoes:'CH_MOVIMENTACOES', categorias:'CH_CATEGORIAS',
       fornecedores:'CH_FORNECEDORES', financeiro:'CH_FINANCEIRO',
       saidas:'CH_SAIDAS',
+      contagens:'CH_CONTAGENS',
     };
 
     const _empty = {
       estoque:[], vendas:[], comandas:[], fiado:[], ponto:[],
       pedidos:[], auditoria:[], config:{}, movimentacoes:[],
-      categorias:[], fornecedores:[], financeiro:[], saidas:[],
+      categorias:[], fornecedores:[], financeiro:[], saidas:[], contagens:[],
     };
 
     const _limits = {
       vendas:CONSTANTS.MAX_VENDAS, ponto:CONSTANTS.MAX_PONTO,
       pedidos:CONSTANTS.MAX_PEDIDOS, auditoria:CONSTANTS.MAX_AUDITORIA,
       comandas:CONSTANTS.MAX_COMANDAS, movimentacoes:CONSTANTS.MAX_MOVIMENTACOES,
-      financeiro:CONSTANTS.MAX_FINANCEIRO, saidas:CONSTANTS.MAX_SAIDAS,
+      financeiro:CONSTANTS.MAX_FINANCEIRO,
+      contagens:CONSTANTS.MAX_CONTAGENS, saidas:CONSTANTS.MAX_SAIDAS,
     };
 
     function _read(col) {
@@ -133,22 +135,20 @@
     _migrarLegacy();
 
     return {
-      // FIX: getters de coleções mutáveis retornam cópia rasa para evitar
-      // que código externo mute silenciosamente o array em cache sem passar por _mutate.
-      // config é objeto único — retorna referência (somente lido externamente).
-      getEstoque()       { const d=_read('estoque');       return Array.isArray(d)?d.slice():d; },
-      getVendas()        { const d=_read('vendas');        return Array.isArray(d)?d.slice():d; },
-      getComandas()      { const d=_read('comandas');      return Array.isArray(d)?d.slice():d; },
-      getFiado()         { const d=_read('fiado');         return Array.isArray(d)?d.slice():d; },
-      getPonto()         { const d=_read('ponto');         return Array.isArray(d)?d.slice():d; },
-      getPedidos()       { const d=_read('pedidos');       return Array.isArray(d)?d.slice():d; },
+      getEstoque()       { return _read('estoque'); },
+      getVendas()        { return _read('vendas'); },
+      getComandas()      { return _read('comandas'); },
+      getFiado()         { return _read('fiado'); },
+      getPonto()         { return _read('ponto'); },
+      getPedidos()       { return _read('pedidos'); },
       getConfig()        { return _read('config'); },
-      getAuditoria()     { const d=_read('auditoria');     return Array.isArray(d)?d.slice():d; },
-      getMovimentacoes() { const d=_read('movimentacoes'); return Array.isArray(d)?d.slice():d; },
-      getCategorias()    { const d=_read('categorias');    return Array.isArray(d)?d.slice():d; },
-      getFornecedores()  { const d=_read('fornecedores');  return Array.isArray(d)?d.slice():d; },
-      getFinanceiro()    { const d=_read('financeiro');    return Array.isArray(d)?d.slice():d; },
-      getSaidas()        { const d=_read('saidas');        return Array.isArray(d)?d.slice():d; },
+      getAuditoria()     { return _read('auditoria'); },
+      getMovimentacoes() { return _read('movimentacoes'); },
+      getCategorias()    { return _read('categorias'); },
+      getFornecedores()  { return _read('fornecedores'); },
+      getFinanceiro()    { return _read('financeiro'); },
+      getSaidas()        { return _read('saidas'); },
+      getContagens()     { return _read('contagens'); },
 
       getVendasHoje() {
         const hoje = Utils.todayISO();
@@ -187,6 +187,7 @@
       mutateFornecedores(fn)  { _mutate('fornecedores',  fn); },
       mutateFinanceiro(fn)    { _mutate('financeiro',    fn); },
       mutateSaidas(fn)        { _mutate('saidas',        fn); },
+      mutateContagens(fn)   { _mutate('contagens',   fn); },
 
       invalidate(col) {
         if (col) delete _cache[col];
@@ -195,22 +196,19 @@
 
       _writeRaw(col, data) { _write(col, data); _notify(col); },
 
-      purgeOldData({ diasVendas=30, diasFinanceiro=30, diasAuditoria=7, diasMovimentacoes=14, diasSaidas=90 }={}) {
+      purgeOldData({ diasVendas=30, diasFinanceiro=30, diasAuditoria=7, diasMovimentacoes=14 }={}) {
         const corte = (dias) => { const d=new Date(); d.setDate(d.getDate()-dias); return d.toISOString().slice(0,10); };
         let purged={};
-        // FIX: assinatura corrigida — (col, campo, dtCorte). Antes estava invertida:
-        // purgeOne('vendas','dataCurta',corte(n)) fazia v[corte(n)] >= 'dataCurta'
-        // que acessa campo inexistente (undefined >= string) → sempre false → purge nunca executava.
-        const purgeOne = (col, campo, dtCorte) => {
+        const purgeOne = (col, dtCorte, campo) => {
           const antes=_read(col).length;
           const filtrado=_read(col).filter(v=>(v[campo]>=dtCorte)||!v._fbSynced);
           if(filtrado.length<antes){_write(col,filtrado);purged[col]=antes-filtrado.length;}
         };
-        purgeOne('vendas',        'dataCurta', corte(diasVendas));
-        purgeOne('financeiro',    'dataCurta', corte(diasFinanceiro));
-        purgeOne('auditoria',     'dataCurta', corte(diasAuditoria));
-        purgeOne('movimentacoes', 'dataCurta', corte(diasMovimentacoes));
-        purgeOne('saidas',        'dataCurta', corte(diasSaidas));
+        purgeOne('vendas','dataCurta',corte(diasVendas));
+        purgeOne('financeiro','dataCurta',corte(diasFinanceiro));
+        purgeOne('auditoria','dataCurta',corte(diasAuditoria));
+        purgeOne('movimentacoes','dataCurta',corte(diasMovimentacoes));
+        purgeOne('saidas','dataCurta',corte(diasSaidas||90));
         ['vendas','financeiro','auditoria','movimentacoes','saidas'].forEach(c=>delete _cache[c]);
         const total=Object.values(purged).reduce((s,n)=>s+n,0);
         if(total>0){console.info('[Store] Purge:',purged,`— ${total} registros removidos`);EventBus.emit('store:purged',purged);}
@@ -261,7 +259,7 @@
         getCategorias()    { return Store.getCategorias(); },
         getFornecedores()  { return Store.getFornecedores(); },
         getFinanceiro()    { return Store.getFinanceiro(); },
-        getSaidas()        { return Store.getSaidas(); },
+        getContagens()     { return Store.getContagens(); },
         getConfig()        { return Store.getConfig(); },
         getInvestimento()  { return Store.getInvestimento(); },
         getLowStock()      { return Store.getLowStock(); },
@@ -318,20 +316,7 @@
           const local=getLocal(), localIds=new Set(local.map(v=>v.id).filter(Boolean));
           const novosDaNuvem=dados.filter(v=>v.id&&!localIds.has(v.id));
           const remoteMap=new Map((dados||[]).map(v=>[v.id,v]));
-          const localFinal=local.map(v=>{
-            const r=remoteMap.get(v.id);
-            if(r){
-              // FIX: venda local ainda não sincronizada (_fbSynced=false) tem prioridade
-              // absoluta sobre a versão remota — ela ainda não chegou ao Firebase.
-              // Só usa versão remota se local já foi confirmada (_fbSynced=true)
-              // E a versão remota tem updatedAt mais recente.
-              if(!v._fbSynced) return v; // local ganha sempre se não sincronizada
-              const tl=v.updatedAt||v.criadoEm||'';
-              const tr=r.updatedAt||r.criadoEm||'';
-              return tr>tl?r:v;
-            }
-            return v;
-          });
+          const localFinal=local.map(v=>{const r=remoteMap.get(v.id);if(r){const tl=v.updatedAt||v.criadoEm||'',tr=r.updatedAt||r.criadoEm||'';return tr>tl?r:v;}return v;});
           if(novosDaNuvem.length>0||localFinal.some((v,i)=>v!==local[i])){
             const merged=[...novosDaNuvem,...localFinal].sort((a,b)=>(b.criadoEm||'')>(a.criadoEm||'')?1:-1).slice(0,maxLimit);
             Store._writeRaw(col,merged); console.info(`[Sync] Merge ${col}: +${novosDaNuvem.length} da nuvem.`);
