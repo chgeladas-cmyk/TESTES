@@ -331,8 +331,14 @@ body{background:#0f172a;color:#e2e8f0;font-family:'Inter',system-ui,sans-serif;m
 <script>
 'use strict';
 
-/* ── Aliases ── */
-const { AuthService, Utils, ContagemService, EstoqueService } = window.CH;
+/* ── Aliases ──
+   AVISO: AuthService e Utils JÁ existem como `const` top-level dentro
+   de core.js (escopo global da página). Redeclará-los aqui com `const`
+   causa SyntaxError "Identifier has already been declared" e MATA todo
+   o script desta página silenciosamente (nenhum DOMContentLoaded roda).
+   Por isso usamos apenas window.CH.X, igual ao padrão de estoque.html. */
+const ContagemService = window.CH.ContagemService;
+const EstoqueService  = window.CH.EstoqueService;
 
 /* ── Estado local ── */
 let _tab       = 'nova';
@@ -360,12 +366,12 @@ function toast(msg, dur = 2800) {
 
 /* ── Auth guard ── */
 window.addEventListener('DOMContentLoaded', () => {
-  if (!AuthService?.getRole()) { location.href = 'index.html'; return; }
+  if (!window.CH.AuthService?.getRole()) { location.href = 'index.html'; return; }
   document.getElementById('topSubtitle').textContent =
-    AuthService.getNome() + ' · ' + new Date().toLocaleDateString('pt-BR');
+    window.CH.AuthService.getNome() + ' · ' + new Date().toLocaleDateString('pt-BR');
 
   // Se colaborador: só pode criar contagem
-  if (!AuthService.isAdmin()) {
+  if (!window.CH.AuthService.isAdmin()) {
     document.getElementById('tabHistorico').style.display = 'none';
   }
 
@@ -604,7 +610,7 @@ function abrirResumo() {
 
   // Preencher modal
   document.getElementById('resTyp').textContent  = _tipo.charAt(0).toUpperCase() + _tipo.slice(1);
-  document.getElementById('resOp').textContent   = AuthService.getNome();
+  document.getElementById('resOp').textContent   = window.CH.AuthService.getNome();
   document.getElementById('resDt').textContent   = new Date().toLocaleDateString('pt-BR');
   document.getElementById('resQtd').textContent  = itensContados.length;
   document.getElementById('resDiv').textContent  = qtdDiv;
@@ -690,7 +696,7 @@ function setPerRel(per, btn) {
 }
 
 function _getRangeRel() {
-  const hoje   = Utils.todayISO();
+  const hoje   = window.CH.Utils.todayISO();
   if (_perRel === 'hoje')   return { de: hoje, ate: hoje };
   if (_perRel === 'semana') {
     const d = new Date(); d.setDate(d.getDate() - 6);
@@ -789,7 +795,7 @@ function abrirDetalhe(id) {
   if (!c) return;
   _detalheAtual = c;
 
-  const isAdmin = AuthService.isAdmin();
+  const isAdmin = window.CH.AuthService.isAdmin();
   const pend    = c.status === 'pendente_aprovacao';
 
   document.getElementById('detalheTitle').innerHTML =
@@ -930,7 +936,7 @@ function carregarHistoricoProd() {
 
   if (!prodId) { cont.innerHTML = ''; return; }
 
-  const hoje = Utils.todayISO();
+  const hoje = window.CH.Utils.todayISO();
   let dataDe;
   if (_perHist === 'mes')    { const d = new Date(); dataDe = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`; }
   else if (_perHist === '3meses') { const d = new Date(); d.setMonth(d.getMonth()-3); dataDe = d.toISOString().slice(0,10); }
@@ -979,7 +985,7 @@ function carregarHistoricoProd() {
    BADGE
 ══════════════════════════════════════════════ */
 function atualizarBadge() {
-  if (!AuthService.isAdmin()) return;
+  if (!window.CH.AuthService.isAdmin()) return;
   const pend = ContagemService.getContagensPendentes().length;
   const el   = document.getElementById('badgePendentes');
   if (pend > 0) {
