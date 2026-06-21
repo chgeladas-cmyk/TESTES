@@ -76,8 +76,9 @@ body { background:#04060d; color:#f1f5f9; font-family:'DM Sans',sans-serif; min-
   <div class="lock-card">
     <div style="font-size:2.5rem;margin-bottom:.75rem">🔐</div>
     <p class="lock-logo">SaaS Admin</p>
-    <p style="font-size:.65rem;color:#334155;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin:.25rem 0 1.75rem">CH Geladas</p>
-    <input type="password" id="adminSenha" class="inp" placeholder="Senha master">
+    <p style="font-size:.65rem;color:#334155;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin:.25rem 0 .5rem">CH Geladas</p>
+    <p style="font-size:.62rem;color:#1e3a5f;font-weight:600;margin-bottom:1.5rem">Use o mesmo PIN admin do PDV</p>
+    <input type="password" id="adminSenha" class="inp" placeholder="PIN admin do sistema" inputmode="numeric">
     <div id="adminErr" style="font-size:.7rem;color:#f87171;font-weight:700;min-height:1rem;margin-bottom:.75rem"></div>
     <button id="btnLoginAdmin" onclick="loginAdmin(this)" style="width:100%;padding:1rem;background:linear-gradient(135deg,#dc2626,#b91c1c);color:#fff;border:none;border-radius:1rem;font-family:'Syne',sans-serif;font-weight:800;font-size:.85rem;text-transform:uppercase;cursor:pointer">
       Entrar
@@ -139,6 +140,8 @@ body { background:#04060d; color:#f1f5f9; font-family:'DM Sans',sans-serif; min-
 <div id="toast"></div>
 
 <script src="core.js"></script>
+<script src="./services/permissoesService.js"></script>
+<script src="./services/userService.js"></script>
 <script src="./services/saasService.js"></script>
 <script>
 'use strict';
@@ -153,7 +156,7 @@ async function loginAdmin(btn) {
   btn = btn || document.getElementById('btnLoginAdmin');
   const SS  = _SS();
   const err = document.getElementById('adminErr');
-  if (!SS) { err.textContent = 'Serviço não carregado.'; return; }
+  if (!SS) { err.textContent = 'Serviço não carregado. Aguarde e tente novamente.'; btn.textContent = 'Entrar'; btn.disabled = false; return; }
   btn.textContent = 'Verificando…';
   btn.disabled = true;
   try {
@@ -176,15 +179,20 @@ function logoutAdmin() {
 
 document.getElementById('adminSenha').addEventListener('keydown', e => { if (e.key === 'Enter') loginAdmin(document.getElementById('btnLoginAdmin')); });
 
-// Restaura sessão super admin se já estava logado
-window.addEventListener('DOMContentLoaded', () => {
+// Restaura sessão — aguarda SaasService estar pronto (scripts externos podem demorar no PWA)
+function _tentarRestaurarSessao(tentativas) {
   const SS = _SS();
-  if (SS && SS.isSuperAdmin()) {
+  if (!SS) {
+    if (tentativas > 0) setTimeout(() => _tentarRestaurarSessao(tentativas - 1), 150);
+    return;
+  }
+  if (SS.isSuperAdmin()) {
     document.getElementById('lock').style.display = 'none';
     document.getElementById('app').style.display  = 'block';
     carregar();
   }
-});
+}
+window.addEventListener('DOMContentLoaded', () => _tentarRestaurarSessao(20));
 
 // ── CARREGAR EMPRESAS ─────────────────────────────────────────────
 async function carregar() {
@@ -260,7 +268,13 @@ function renderLista() {
             : `<button class="btn-sm btn-success" onclick="toggleEmpresa('${e.id}',true)"><i class="fas fa-check mr-1"></i>Ativar</button>`
           }
           <button class="btn-sm btn-info" onclick="gerarConviteAdmin('${e.id}','colaborador')">
-            <i class="fas fa-ticket-alt mr-1"></i>Gerar Convite
+            <i class="fas fa-ticket-alt mr-1"></i>Convite Colab
+          </button>
+          <button class="btn-sm btn-info" onclick="gerarConviteAdmin('${e.id}','admin')">
+            <i class="fas fa-user-shield mr-1"></i>Convite Admin
+          </button>
+          <button class="btn-sm btn-danger" onclick="excluirEmpresa('${e.id}','${e.nome.replace(/'/g,"\\'")}')" style="opacity:.7">
+            <i class="fas fa-trash mr-1"></i>Excluir
           </button>
         </div>
       </div>
@@ -291,6 +305,20 @@ async function toggleEmpresa(empresaId, ativo) {
   try {
     await _SS().toggleEmpresa(empresaId, ativo);
     toast(`Empresa ${ativo ? 'ativada' : 'desativada'}!`, 'ok');
+    await carregar();
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+async function excluirEmpresa(empresaId, nomeEmpresa) {
+  if (!confirm(`⚠️ EXCLUIR permanentemente "${nomeEmpresa}"?
+
+Todos os dados serão perdidos. Esta ação não pode ser desfeita.`)) return;
+  const conf2 = prompt(`Digite o ID da empresa para confirmar:
+${empresaId}`);
+  if (conf2?.trim() !== empresaId) { toast('ID incorreto — exclusão cancelada', 'err'); return; }
+  try {
+    await _SS().excluirEmpresa(empresaId);
+    toast(`Empresa "${nomeEmpresa}" excluída`, 'ok');
     await carregar();
   } catch(e) { toast(e.message, 'err'); }
 }

@@ -295,7 +295,7 @@ async function doLogin(){const pin=document.getElementById('loginSenha').value.t
 document.getElementById('loginSenha').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
 function logout(){if(confirm('Encerrar sessão?')){AuthService.logout();location.reload();}}
 
-function init(){UIService.startClock('clock');renderFiltros();renderLista();renderKPIs();renderAudit();let _estoqueRT=null; EventBus.on('store:updated',()=>{clearTimeout(_estoqueRT);_estoqueRT=setTimeout(()=>{renderFiltros();renderLista();renderKPIs();renderAudit();},80);});}
+function init(){UIService.startClock('clock');renderFiltros();renderLista();renderKPIs();renderAudit();EventBus.on('store:updated',()=>{renderFiltros();renderLista();renderKPIs();renderAudit();});}
 
 function switchTab(id){['lista','form','audit','cats'].forEach(t=>{const btn=document.getElementById('tb'+t.charAt(0).toUpperCase()+t.slice(1));const pane=document.getElementById('tab-'+t);if(btn)btn.classList.toggle('active',t===id);if(pane)pane.classList.toggle('active',t===id);});if(id==='cats')renderCatsGerenciar();}
 
@@ -307,17 +307,7 @@ function renderKPIs(){const estoque=Store.getEstoque();const thr=Store.getConfig
 
 function renderLista(){const busca=(document.getElementById('busca')?.value||'').toLowerCase();const status=document.getElementById('filtroStatus')?.value||'todos';const catF=document.getElementById('filtroCat')?.value||'';const thr=Store.getConfig()?.alertaEstoque||3;let prods=Store.getEstoque().filter(p=>{const b=!busca||(p.nome||'').toLowerCase().includes(busca);const c=!catF||(p.categoria||'')===catF;const q=p.qtdUn||0;const s=status==='todos'||(status==='esgotado'&&q<=0)||(status==='baixo'&&q>0&&q<=thr)||(status==='ok'&&q>thr);return b&&c&&s;});const el=document.getElementById('gridProdutos');if(!el)return;if(prods.length===0){el.innerHTML=`<div class="col-span-2 flex flex-col items-center justify-center py-20 opacity-30"><i class="fas fa-box-open text-5xl mb-4 text-slate-600"></i><p class="text-[10px] font-black uppercase text-slate-600">Nenhum produto encontrado</p></div>`;return;}const isAdm=AuthService.isAdmin();el.innerHTML=prods.map(p=>{const q=p.qtdUn||0;const esg=q<=0;const bx=!esg&&q<=thr;const cls=esg?'esgotado':bx?'warning':'';const mg=p.precoUn>0?(((p.precoUn-(p.custoUn||0))/p.precoUn)*100).toFixed(0):0;return`<div class="prod-card ${cls}"><div class="flex items-start justify-between mb-2 gap-2"><div class="flex-1 min-w-0"><p class="text-[12px] font-black text-white truncate">${p.nome}</p>${p.categoria?`<span class="badge b-purple text-[8px] mt-0.5">${p.categoria}</span>`:''}</div><div class="flex items-center gap-1.5 flex-shrink-0">${esg?'<span class="badge b-red">Esgotado</span>':bx?`<span class="badge b-amber">${q} un</span>`:`<span class="badge b-green">${q} un</span>`}${isAdm?`<button onclick="abrirEdicao('${p.id}')" class="w-7 h-7 rounded-lg bg-slate-800 text-slate-400 hover:text-emerald-400 flex items-center justify-center"><i class="fas fa-edit text-[9px]"></i></button>`:''} ${isAdm?`<button onclick="excluirProduto('${p.id}')" class="w-7 h-7 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 flex items-center justify-center"><i class="fas fa-trash text-[9px]"></i></button>`:''}</div></div><div class="grid grid-cols-3 gap-2 mb-3"><div class="text-center bg-slate-900/60 rounded-lg py-1.5"><p class="text-[8px] text-slate-500 font-bold uppercase">Venda</p><p class="text-[11px] font-black text-blue-400">${Utils.formatCurrency(p.precoUn)}</p></div><div class="text-center bg-slate-900/60 rounded-lg py-1.5"><p class="text-[8px] text-slate-500 font-bold uppercase">Custo</p><p class="text-[11px] font-black text-slate-300">${Utils.formatCurrency(p.custoUn||0)}</p></div><div class="text-center bg-slate-900/60 rounded-lg py-1.5"><p class="text-[8px] text-slate-500 font-bold uppercase">Margem</p><p class="text-[11px] font-black text-emerald-400">${mg}%</p></div></div>${(p.packs||[]).length>0?`<div class="flex gap-1.5 mb-3 flex-wrap">${p.packs.map(pk=>`<span class="badge b-amber text-[8px]">${pk.label||pk.qtd+'x'} ${Utils.formatCurrency(pk.preco)}</span>`).join('')}</div>`:''} ${isAdm?`<div class="flex items-center gap-2"><button onclick="ajusteRapido('${p.id}',-1)" class="sk-btn sk-m">−</button><span class="flex-1 text-center text-[11px] font-black text-white">${q} un</span><button onclick="ajusteRapido('${p.id}',+1)" class="sk-btn sk-p">+</button><span class="text-[9px] text-slate-600 font-bold">${Utils.formatCurrency((p.custoUn||0)*q)}</span></div>`:`<p class="text-[9px] text-slate-500 font-bold">${q} un · ${Utils.formatCurrency((p.custoUn||0)*q)}</p>`}</div>`;}).join('');}
 
-function ajusteRapido(id,delta){
-  const p=Store.getEstoque().find(x=>x.id===id);if(!p)return;
-  const nq=Math.max(0,(p.qtdUn||0)+delta);
-  // FIX [MÉDIO]: delega para EstoqueService (Firebase Transaction + AuditService)
-  if(window.CH?.EstoqueService){
-    const tipo = delta>0?'entrada':'venda';
-    window.CH.EstoqueService[delta>0?'entradaEstoque':'registrarAvaria'](id,Math.abs(delta),{observacao:'Ajuste rápido PDV'}).catch(()=>{});
-    UIService.showToast(p.nome,`${delta>0?'+':''}${delta} un → ${nq} un`,delta>0?'success':'warning');
-    return;
-  }
-  Store.mutateEstoque(est=>{const x=est.find(y=>y.id===id);if(!x)return;x.qtdUn=nq;});
+function ajusteRapido(id,delta){const p=Store.getEstoque().find(x=>x.id===id);if(!p)return;const nq=Math.max(0,(p.qtdUn||0)+delta);Store.mutateEstoque(est=>{const x=est.find(y=>y.id===id);if(!x)return;x.qtdUn=nq;});
   Store.mutateAuditoria(audit=>{audit.unshift({prodId:id,prodNome:p.nome,antes:p.qtdUn,depois:nq,delta,motivo:delta>0?'Entrada manual':'Saída manual',criadoEm:new Date().toISOString(),data:Utils.today()});});UIService.showToast(p.nome,`${delta>0?'+':''}${delta} un → ${nq} un`,delta>0?'success':'warning');}
 
 function resetForm(){_packsForm=[];['editId','fNome','fQtd','fCusto','fPreco'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});const fCat=document.getElementById('fCat');if(fCat)fCat.value='';document.getElementById('packList').innerHTML='';document.getElementById('formTitle').textContent='Novo Produto';document.getElementById('btnCancelarEdit').classList.add('hidden');}
@@ -325,47 +315,11 @@ function resetForm(){_packsForm=[];['editId','fNome','fQtd','fCusto','fPreco'].f
 function adicionarPack(){const q=parseInt(document.getElementById('pkQtd').value);const l=document.getElementById('pkLabel').value.trim()||(q+'x');const p=parseFloat(document.getElementById('pkPreco').value);if(!q||q<2||!p){UIService.showToast('Preencha qtd e preço','','error');return;}_packsForm.push({qtd:q,label:l,preco:p});renderPacksForm();document.getElementById('pkQtd').value='';document.getElementById('pkLabel').value='';document.getElementById('pkPreco').value='';}
 function renderPacksForm(){document.getElementById('packList').innerHTML=_packsForm.map((pk,i)=>`<div class="pack-row"><span class="flex-1 text-[10px] font-black text-amber-300">${pk.label} (${pk.qtd}un) — ${Utils.formatCurrency(pk.preco)}</span><button onclick="_packsForm.splice(${i},1);renderPacksForm();" class="text-red-400 text-xs"><i class="fas fa-times"></i></button></div>`).join('');}
 
-function salvarProduto(){
-  const nome=document.getElementById('fNome').value.trim();
-  const q=parseFloat(document.getElementById('fQtd').value)||0;
-  const custo=parseFloat(document.getElementById('fCusto').value)||0;
-  const preco=parseFloat(document.getElementById('fPreco').value)||0;
-  const cat=document.getElementById('fCat').value;
-  const eid=document.getElementById('editId').value;
-  if(!nome){UIService.showToast('Nome obrigatório','','error');return;}
-  // FIX [MÉDIO]: salvarProduto não sincronizava com Firebase após mutação.
-  // Também faltavam campos obrigatórios: controlaEstoque, ativo, updatedAt.
-  Store.mutateEstoque(est=>{
-    if(eid){
-      const idx=est.findIndex(p=>p.id===eid);
-      if(idx>=0) est[idx]={...est[idx],nome,qtdUn:q,custoUn:custo,precoUn:preco,categoria:cat,packs:_packsForm,updatedAt:new Date().toISOString()};
-    } else {
-      est.push({
-        id:Utils.generateId(),nome,qtdUn:q,custoUn:custo,precoUn:preco,
-        categoria:cat,packs:_packsForm,
-        controlaEstoque:true, ativo:true,
-        criadoEm:new Date().toISOString(),
-        updatedAt:new Date().toISOString(),
-        operador:window.CH?.AuthService?.getNome?.()
-      });
-    }
+function salvarProduto(){const nome=document.getElementById('fNome').value.trim();const q=parseFloat(document.getElementById('fQtd').value)||0;const custo=parseFloat(document.getElementById('fCusto').value)||0;const preco=parseFloat(document.getElementById('fPreco').value)||0;const cat=document.getElementById('fCat').value;const eid=document.getElementById('editId').value;if(!nome){UIService.showToast('Nome obrigatório','','error');return;}Store.mutateEstoque(est=>{
+    if(eid){const idx=est.findIndex(p=>p.id===eid);if(idx>=0)est[idx]={...est[idx],nome,qtdUn:q,custoUn:custo,precoUn:preco,categoria:cat,packs:_packsForm};}
+    else{est.push({id:Utils.generateId(),nome,qtdUn:q,custoUn:custo,precoUn:preco,categoria:cat,packs:_packsForm,criadoEm:new Date().toISOString()});}
   });
-  Store.mutateAuditoria(audit=>{audit.unshift({
-    prodNome:nome,antes:eid?'?':0,depois:q,delta:q,
-    motivo:eid?'Edição':'Cadastro inicial',
-    operador:window.CH?.AuthService?.getNome?.(),
-    criadoEm:new Date().toISOString(),data:Utils.today()
-  });});
-  // Sync Firebase
-  (async()=>{
-    try{
-      const est=Store.getEstoque();
-      if(window.CH?.FirebaseService?.isReady?.()) await window.CH.FirebaseService.salvar('estoque',est);
-      else if(window.CH?.SyncQueue) window.CH.SyncQueue.enqueue('salvar','estoque',est);
-    }catch(e){console.warn('[salvarProduto] sync falhou:',e.message);}
-  })();
-  UIService.showToast(eid?'Atualizado!':'Cadastrado!',nome,'success');resetForm();switchTab('lista');
-}
+  Store.mutateAuditoria(audit=>{audit.unshift({prodNome:nome,antes:eid?'?':0,depois:q,delta:q,motivo:eid?'Edição':'Cadastro inicial',criadoEm:new Date().toISOString(),data:Utils.today()});});UIService.showToast(eid?'Atualizado!':'Cadastrado!',nome,'success');resetForm();switchTab('lista');}
 
 function abrirEdicao(id){const p=Store.getEstoque().find(x=>x.id===id);if(!p)return;_packsEdit=[...(p.packs||[])];_qtdOrig=p.qtdUn||0;document.getElementById('meId').value=p.id;document.getElementById('meNome').value=p.nome;document.getElementById('meCusto').value=p.custoUn||0;document.getElementById('mePreco').value=p.precoUn||0;document.getElementById('meQtd').value=p.qtdUn||0;document.getElementById('meCat').value=p.categoria||'';document.getElementById('meMotivo').value='';document.getElementById('motivoWrap').classList.add('hidden');document.getElementById('meEntrada').value='';renderPacksEdit();UIService.openModal('modalEditar');}
 
@@ -396,20 +350,7 @@ function salvarEdicao(){const id=document.getElementById('meId').value;const nom
   })();
   UIService.closeModal('modalEditar');UIService.showToast('Produto atualizado!',nome,'success');}
 
-function excluirProduto(id){
-  const p=Store.getEstoque().find(x=>x.id===id);
-  if(!p||!confirm(`Excluir "${p.nome}"?`))return;
-  // FIX [MÉDIO]: hard delete (splice) dessincronizava com Firebase —
-  // o produto desaparecia do localStorage mas continuava no Firestore.
-  // No próximo onSnapshot, voltava do Firebase como se nunca tivesse sido excluído.
-  // Agora usa soft delete (ativo:false) igual ao EstoqueService.removerProduto().
-  if(window.CH?.EstoqueService){
-    window.CH.EstoqueService.removerProduto(id);
-  } else {
-    Store.mutateEstoque(est=>{const x=est.find(y=>y.id===id);if(x)x.ativo=false;});
-  }
-  UIService.showToast('Excluído',p.nome,'warning');
-}
+function excluirProduto(id){const p=Store.getEstoque().find(x=>x.id===id);if(!p||!confirm(`Excluir "${p.nome}"?`))return;Store.mutateEstoque(est=>{const idx=est.findIndex(x=>x.id===id);if(idx>=0)est.splice(idx,1);});UIService.showToast('Excluído',p.nome,'warning');}
 
 let _auditFiltro = 'todos';
 function setAuditFiltro(f){_auditFiltro=f;document.querySelectorAll('.audit-f-btn').forEach(b=>{const active=b.id==='auditF-'+f;b.className=`audit-f-btn px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${active?'bg-emerald-600/20 text-emerald-300 border border-emerald-500/25':'bg-slate-800 text-slate-500 border border-white/5'}`;});renderAudit();}
@@ -425,15 +366,7 @@ function _tipoAudit(l){const m=(l.motivo||'').toLowerCase();if(m.includes('avari
 
 function abrirModalAvaria(){const sel=document.getElementById('avProduto');if(sel){const prods=Store.getEstoque().filter(p=>(p.qtdUn||0)>0);sel.innerHTML=`<option value="">— Selecionar produto —</option>`+prods.map(p=>`<option value="${p.id}">${p.nome} (${p.qtdUn} un)</option>`).join('');}document.getElementById('avQtd').value='';document.getElementById('avMotivo').value='';UIService.openModal('modalAvaria');}
 
-function confirmarAvaria(){const prodId=document.getElementById('avProduto').value;const qtd=parseInt(document.getElementById('avQtd').value)||0;const motivo=document.getElementById('avMotivo').value.trim();if(!prodId){UIService.showToast('Selecione o produto','','error');return;}if(qtd<=0){UIService.showToast('Informe a quantidade','','error');return;}if(!motivo){UIService.showToast('Informe o motivo','','error');return;}const p=Store.getEstoque().find(x=>x.id===prodId);if(!p)return;if(qtd>p.qtdUn){UIService.showToast('Quantidade maior que o stock','','error');return;}const antes=p.qtdUn;const depois=antes-qtd;
-  // FIX [MÉDIO]: delega para EstoqueService (Firebase Transaction + AuditService correto)
-  if(window.CH?.EstoqueService){
-    window.CH.EstoqueService.registrarAvaria(prodId,qtd,motivo).catch(()=>{});
-    UIService.closeModal('modalAvaria');UIService.showToast('Avaria registrada!',`${p.nome}: −${qtd} un`,'warning');return;
-  }
-  Store.mutateEstoque(est=>{const x=est.find(y=>y.id===prodId);if(!x)return;x.qtdUn=depois;});
-  Store.mutateAuditoria(audit=>{audit.unshift({prodId,prodNome:p.nome,antes,depois,delta:-qtd,motivo:`[AVARIA] ${motivo}`,tipo:'AVARIA',criadoEm:new Date().toISOString(),data:Utils.today()});});
-  UIService.closeModal('modalAvaria');UIService.showToast('Avaria registrada!',`${p.nome}: −${qtd} un`,'warning');}
+function confirmarAvaria(){const prodId=document.getElementById('avProduto').value;const qtd=parseInt(document.getElementById('avQtd').value)||0;const motivo=document.getElementById('avMotivo').value.trim();if(!prodId){UIService.showToast('Selecione o produto','','error');return;}if(qtd<=0){UIService.showToast('Informe a quantidade','','error');return;}if(!motivo){UIService.showToast('Informe o motivo','','error');return;}const p=Store.getEstoque().find(x=>x.id===prodId);if(!p)return;if(qtd>p.qtdUn){UIService.showToast('Quantidade maior que o stock','','error');return;}const antes=p.qtdUn;const depois=antes-qtd;Store.mutateEstoque(est=>{const x=est.find(y=>y.id===prodId);if(!x)return;x.qtdUn=depois;});Store.mutateAuditoria(audit=>{audit.unshift({prodId,prodNome:p.nome,antes,depois,delta:-qtd,motivo:`[AVARIA] ${motivo}`,tipo:'AVARIA',criadoEm:new Date().toISOString(),data:Utils.today()});});UIService.closeModal('modalAvaria');UIService.showToast('Avaria registrada!',`${p.nome}: −${qtd} un`,'warning');}
 
 function renderCatsGerenciar(){const cfg=Store.getConfig()||{};const cats=Array.isArray(cfg.categorias)?cfg.categorias:[...new Set(Store.getEstoque().map(p=>p.categoria||'').filter(Boolean))];const el=document.getElementById('catsLista');if(!el)return;if(cats.length===0){el.innerHTML=`<div class="text-center py-8 opacity-30"><i class="fas fa-tag text-3xl text-slate-600 mb-2"></i><p class="text-[10px] font-black uppercase text-slate-600">Nenhuma categoria</p></div>`;return;}el.innerHTML=cats.map(c=>{const count=Store.getEstoque().filter(p=>p.categoria===c).length;return`<div class="flex items-center justify-between bg-slate-900/60 border border-white/5 rounded-xl px-4 py-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-lg bg-purple-500/15 text-purple-400 flex items-center justify-center text-xs font-black">${c.charAt(0).toUpperCase()}</div><div><p class="text-[11px] font-black text-white">${c}</p><p class="text-[8px] text-slate-600 font-bold">${count} produto${count!==1?'s':''}</p></div></div><button onclick="excluirCategoria('${c}')" class="w-7 h-7 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 flex items-center justify-center transition-all"><i class="fas fa-trash text-[9px]"></i></button></div>`;}).join('');}
 
