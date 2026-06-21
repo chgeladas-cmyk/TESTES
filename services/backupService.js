@@ -41,12 +41,6 @@
       categorias:    Store.getCategorias(),
       fornecedores:  Store.getFornecedores(),
       financeiro:    Store.getFinanceiro().slice(0, 2000),
-      // FIX [MÉDIO]: reservas de estoque não eram incluídas no backup.
-      // Se o localStorage fosse limpo, vendas pendentes perdiam suas reservas,
-      // permitindo que outro colaborador vendesse o mesmo estoque reservado.
-      reservasEstoque: (() => {
-        try { return JSON.parse(localStorage.getItem('CH_RESERVAS_ESTOQUE') || '{}'); } catch { return {}; }
-      })(),
     };
   }
 

@@ -86,13 +86,6 @@
 
   /** Registra estorno de uma venda cancelada */
   function registrarEstorno(venda) {
-    // Busca a receita original desta venda para correlacionar o estorno
-    // ao mesmo dia no fluxo de caixa (regime de competência). dataCurta
-    // do lançamento permanece a data do cancelamento — getCaixaDia()
-    // (fechamento físico) precisa registrar a saída no dia em que ocorreu.
-    const receitaOriginal = Store.getFinanceiro().find(
-      l => l.referencia === venda.id && l.tipo === 'receita'
-    );
     return _lancar({
       tipo:       'estorno',
       categoria:  'cancelamento',
@@ -100,7 +93,6 @@
       valor:      venda.total,
       formaPgto:  venda.formaPgto,
       referencia: venda.id,
-      extra: receitaOriginal ? { dataReferenciaOriginal: receitaOriginal.dataCurta } : {},
     });
   }
 
@@ -166,22 +158,12 @@
     // Agrupa por dia
     const dias = {};
     getLancamentos({ dataDe, dataAte }).forEach(l => {
-      // Estornos são correlacionados ao dia da receita original (regime de
-      // competência), para que receita+estorno se neutralizem no mesmo dia
-      // no gráfico de resultado — mesmo que o cancelamento tenha ocorrido
-      // em outra data. Se esse dia ficar fora do range consultado, o
-      // estorno pertence ao gráfico de outro período e é ignorado aqui.
-      let dataAgrupamento = l.dataCurta;
-      if (l.tipo === 'estorno' && l.dataReferenciaOriginal) {
-        if (l.dataReferenciaOriginal < dataDe || l.dataReferenciaOriginal > dataAte) return;
-        dataAgrupamento = l.dataReferenciaOriginal;
+      if (!dias[l.dataCurta]) {
+        dias[l.dataCurta] = { data: l.dataCurta, receitas: 0, despesas: 0, estornos: 0, lucro: 0 };
       }
-      if (!dias[dataAgrupamento]) {
-        dias[dataAgrupamento] = { data: dataAgrupamento, receitas: 0, despesas: 0, estornos: 0, lucro: 0 };
-      }
-      if (l.tipo === 'receita') { dias[dataAgrupamento].receitas += l.valor; dias[dataAgrupamento].lucro += (l.lucro || 0); }
-      if (l.tipo === 'despesa') dias[dataAgrupamento].despesas += l.valor;
-      if (l.tipo === 'estorno') dias[dataAgrupamento].estornos += l.valor;
+      if (l.tipo === 'receita') { dias[l.dataCurta].receitas += l.valor; dias[l.dataCurta].lucro += (l.lucro || 0); }
+      if (l.tipo === 'despesa') dias[l.dataCurta].despesas += l.valor;
+      if (l.tipo === 'estorno') dias[l.dataCurta].estornos += l.valor;
     });
 
     return Object.values(dias)

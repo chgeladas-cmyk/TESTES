@@ -171,18 +171,16 @@
     return sess;
   }
 
-  // Login super-admin (dono do SaaS)
-  // Hash fixo cacheado — calculado 1 vez, não a cada login
-  // FIX [ALTO]: senha master estava hardcoded em texto plano no fonte.
-  // Qualquer pessoa com acesso ao repositório/ZIP poderia virar super admin.
-  // Substituído pelo hash SHA-256 — a senha original deve ser trocada em produção.
-  // Hash atual: SHA-256 de 'chgeladas_saas_master_2025' (TROQUE IMEDIATAMENTE em produção)
-  const _SUPER_HASH_FIXO = '17c6881a6a43da64a90dd31999d2bbf9cdb51b8538e6e54c48a598fbfb28317c'; // FIX: SHA-256 correto de 'chgeladas_saas_master_2025' — TROQUE EM PRODUÇÃO
-  let _superHash = null;
-  async function loginSuperAdmin(senha) {
-    if (!_superHash) _superHash = _SUPER_HASH_FIXO;
-    const hash = await CryptoService.sha256(senha.trim());
-    if (hash !== _superHash) throw new Error('Senha incorreta');
+  // Login super-admin — usa o mesmo PIN admin do sistema (pinHashAdmin do CH_CONFIG)
+  // Assim não há senha separada para memorizar: quem acessa o PDV como admin acessa o SaaS Admin
+  async function loginSuperAdmin(pin) {
+    if (!pin) throw new Error('Informe o PIN');
+
+    // Usa o mesmo CryptoService.validatePin do core.js
+    // Compara com cfg.pinHashAdmin (configurado pelo usuário) ou fallback SHA256('001')
+    const role = await CryptoService.validatePin(pin);
+    if (role !== 'admin' && role !== 'adm') throw new Error('PIN incorreto');
+
     const sess = { superAdmin: true, nome: 'Super Admin', loginAt: Date.now() };
     _saveSession(sess);
     return sess;
@@ -230,16 +228,16 @@
     if (conv.usado) throw new Error('Código já utilizado');
     if (new Date(conv.expiraEm) < new Date()) throw new Error('Código expirado');
 
-    // Verifica nome duplicado na empresa
+    // Bug 6 fix: query com 2 where (sem índice composto) + filtro ativo em memória
     const nomeN = nome.trim().toLowerCase();
     const dupQ = _fb.query(
       _fb.collection(_db, 'saas_usuarios'),
       _fb.where('empresaId', '==', conv.empresaId),
       _fb.where('nomeNorm',  '==', nomeN),
-      _fb.where('ativo',     '==', true),
     );
     const dupSnap = await _fb.getDocs(dupQ);
-    if (!dupSnap.empty) throw new Error('Já existe um usuário com este nome nesta empresa. Escolha outro nome.');
+    const dupAtivo = dupSnap.docs.map(d => d.data()).find(u => u.ativo !== false);
+    if (dupAtivo) throw new Error('Já existe um usuário com este nome nesta empresa. Escolha outro nome.');
 
     const uid      = Utils.generateId();
     const senhaHash = await CryptoService.sha256(senha.trim());
@@ -332,6 +330,26 @@
     await _fb.updateDoc(_fb.doc(_db, 'saas_empresas', empresaId), { ativo });
   }
 
+  // ─── Excluir empresa (super admin) ───────────────────────────────
+  async function excluirEmpresa(empresaId) {
+    if (!isSuperAdmin()) throw new Error('Acesso negado');
+    await _ensureDB();
+    // Apaga empresa, usuários e convites da empresa em batch
+    const batch = _fb.writeBatch(_db);
+    batch.delete(_fb.doc(_db, 'saas_empresas', empresaId));
+    // Apaga usuários da empresa
+    const usersSnap = await _fb.getDocs(
+      _fb.query(_fb.collection(_db, 'saas_usuarios'), _fb.where('empresaId', '==', empresaId))
+    );
+    usersSnap.docs.forEach(d => batch.delete(d.ref));
+    // Apaga convites da empresa
+    const convSnap = await _fb.getDocs(
+      _fb.query(_fb.collection(_db, 'saas_convites'), _fb.where('empresaId', '==', empresaId))
+    );
+    convSnap.docs.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+  }
+
   // ─── Expor ────────────────────────────────────────────────────────
   window.CH.SaasService = {
     // Sessão
@@ -344,7 +362,7 @@
     // Usuários
     getUsuariosEmpresa, desativarUsuario,
     // Super admin
-    listarEmpresas, atualizarPlano, toggleEmpresa, gerarConviteAdmin,
+    listarEmpresas, atualizarPlano, toggleEmpresa, excluirEmpresa, gerarConviteAdmin,
     // Planos
     getPlanos, getPlano,
   };

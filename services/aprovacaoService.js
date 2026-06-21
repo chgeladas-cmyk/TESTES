@@ -1,16 +1,23 @@
 'use strict';
 /**
  * services/aprovacaoService.js — CH Geladas PDV
+ * ═══════════════════════════════════════════════════════════════════
  * Fluxo:  pendente → (controlador) → aprovada → (validador) → validada
  *
- * CORREÇÃO LOTE: aprovarTodas/validarTodas fazem mutação única + sync único
- * para evitar loop de re-render e race condition no SyncQueue.
+ * REGRA INVIOLÁVEL:
+ *   Uma venda JAMAIS muda para "validada" antes da baixa de estoque
+ *   ser executada e confirmada.
+ *
+ *   Ordem de execução:
+ *     1. Verifica estoque disponível (bloqueia se insuficiente)
+ *     2. baixarEstoqueVendaLote() ← executa a baixa
+ *     3. Somente após confirmação → muda status para "validada"
+ *     4. Dispara eventos (financeiro, fiado, sync)
  */
 
 (function () {
   const { Store, AuthService, Utils, EventBus } = window.CH;
 
-  // Flag que impede renderizar() no meio de operações em lote
   let _processandoLote = false;
 
   function _perm(modulo) {
@@ -21,19 +28,34 @@
       : false;
   }
 
-  // Sync individual (usado em ações unitárias)
   function _sync(vendaId) {
     if (!window.CH.SyncQueue) return;
     const v = Store.getVendas().find(v => v.id === vendaId);
     if (v) window.CH.SyncQueue.enqueue('atualizar', 'vendas', [v]);
   }
 
-  // Sync em lote — enfileira tudo de uma vez
   function _syncLote(vendaIds) {
     if (!window.CH.SyncQueue || !vendaIds.length) return;
     const todas = Store.getVendas();
     const lote  = vendaIds.map(id => todas.find(v => v.id === id)).filter(Boolean);
     if (lote.length) window.CH.SyncQueue.enqueue('atualizar', 'vendas', lote);
+  }
+
+  // Marca a venda como erro_validacao, mantendo o estado anterior preservado em _statusAnterior
+  // para que "Tentar novamente" e "Resolver manualmente" saibam pra onde reverter/avançar.
+  function _marcarErroValidacao(vendaId, motivo, agora, operador) {
+    Store.mutateVendas(list => {
+      const v = list.find(v => v.id === vendaId);
+      if (v && v.status !== 'erro_validacao') {
+        v._statusAnterior   = v.status; // sempre 'aprovada' neste fluxo, mas guarda por segurança
+        v.status             = 'erro_validacao';
+        v.erroValidacaoEm    = agora;
+        v.erroValidacaoMotivo = motivo;
+        v.erroValidacaoOperador = operador;
+      }
+    });
+    _sync(vendaId);
+    EventBus.emit('venda:erro_validacao', { vendaId, motivo, operador });
   }
 
   // ── Queries ───────────────────────────────────────────────────────
@@ -57,8 +79,14 @@
       .filter(v => v.status === 'validada')
       .sort((a, b) => (b.validadaEm || '').localeCompare(a.validadaEm || ''));
   }
+  function getErrosValidacao() {
+    return Store.getVendas()
+      .filter(v => v.status === 'erro_validacao')
+      .sort((a, b) => (b.erroValidacaoEm || '').localeCompare(a.erroValidacaoEm || ''));
+  }
   function contarPendentes() { return getPendentes().length; }
   function contarAprovadas() { return getAprovadas().length; }
+  function contarErrosValidacao() { return getErrosValidacao().length; }
 
   // ── APROVAR individual (pendente → aprovada) ──────────────────────
   function aprovarVenda(vendaId) {
@@ -71,16 +99,15 @@
       throw new Error(`Venda está "${venda.status}", esperado "pendente"`);
 
     // Valida disponibilidade real (estoqueAtual − reservas de outras vendas)
-    const EstoqueService = window.CH.EstoqueService;
-    if (EstoqueService) {
-      const reservas = EstoqueService.getReservas();
+    // Câmbios não movimentam estoque — pula verificação
+    const ES = window.CH.EstoqueService;
+    if (ES && !venda._cambio) {
+      const reservas = ES.getReservas();
       for (const item of venda.itens || []) {
-        const prod = EstoqueService.getProduto(item.prodId);
-        if (!prod) continue;
-        if (prod.controlaEstoque === false) continue; // produto sem controle de estoque (ex: cigarro)
+        const prod = ES.getProduto(item.prodId);
+        if (!prod || prod.controlaEstoque === false) continue;
         const pack  = prod.packs?.find(pk => pk.label === item.label || (pk.qtd + 'x') === item.label);
         const qtdUn = item.label === 'UNID' ? item.qtd : item.qtd * (pack?.qtd || 1);
-        // Disponível = atual − reservas de OUTRAS vendas (excluindo a própria)
         const reservaOutros = Object.entries(reservas)
           .filter(([vid]) => vid !== vendaId)
           .reduce((s, [, r]) => s + (r[item.prodId] || 0), 0);
@@ -117,7 +144,7 @@
 
     const venda = Store.getVendas().find(v => v.id === vendaId);
     if (!venda) throw new Error('Venda não encontrada');
-    if (!['pendente', 'aprovada'].includes(venda.status))
+    if (!['pendente', 'aprovada', 'erro_validacao'].includes(venda.status))
       throw new Error(`Venda "${venda.status}" não pode ser rejeitada`);
 
     Store.mutateVendas(list => {
@@ -130,8 +157,17 @@
       }
     });
 
-    // Libera a reserva de estoque para que outras vendas possam ser aprovadas
     window.CH.EstoqueService?.liberarReserva?.(vendaId);
+
+    if (venda._fiado && venda._fiadoClienteId) {
+      EventBus.emit('fiado:lancamento:rejeitado', {
+        vendaId,
+        clienteId: venda._fiadoClienteId,
+        valor:     venda.total,
+        motivo,
+        operador:  AuthService.getNome(),
+      });
+    }
 
     _sync(vendaId);
     EventBus.emit('venda:rejeitada', { vendaId, motivo, operador: AuthService.getNome() });
@@ -148,72 +184,206 @@
     if (venda.status !== 'aprovada')
       throw new Error(`Venda está "${venda.status}", esperado "aprovada"`);
 
-    // 1. Marca validada primeiro (idempotente)
+    // ── PASSO 1: Verifica estoque disponível ──────────────────────
+    // Câmbios não movimentam estoque — pula verificação e baixa
+    const ES = window.CH.EstoqueService;
+    if (ES && !venda._cambio) {
+      const errosEstoque = [];
+      for (const item of venda.itens || []) {
+        const prod = ES.getProduto(item.prodId);
+        if (!prod || prod.controlaEstoque === false) continue;
+        const pack  = prod.packs?.find(pk => pk.label === item.label || (pk.qtd + 'x') === item.label);
+        const qtdUn = item.label === 'UNID' ? item.qtd : item.qtd * (pack?.qtd || 1);
+        const disponivel = prod.estoqueAtual ?? prod.qtdUn ?? 0;
+        if (disponivel < qtdUn)
+          errosEstoque.push(`"${prod.nome}": disponível ${disponivel}, necessário ${qtdUn}`);
+      }
+      if (errosEstoque.length > 0)
+        throw new Error(`Estoque insuficiente:\n${errosEstoque.join('\n')}`);
+    }
+
+    // ── PASSO 2: Libera reserva ───────────────────────────────────
+    if (!venda._cambio) ES?.liberarReserva?.(venda.id);
+
+    // ── PASSO 3: BAIXA DE ESTOQUE — ANTES DE MUDAR STATUS ─────────
+    let baixaOk    = true;   // câmbio sempre ok (sem estoque)
+    let baixaErros = [];
+
+    if (!venda._cambio) {
+      baixaOk = false;
+      if (ES?.baixarEstoqueVendaLote) {
+        try {
+          const resultado = await ES.baixarEstoqueVendaLote(venda);
+          baixaOk    = resultado.ok || resultado.localFallback || false;
+          baixaErros = resultado.erros || [];
+          if (!resultado.ok && !resultado.localFallback && resultado.itensProcessados === 0) {
+            throw new Error(`Baixa falhou: ${resultado.erros?.join('; ')}`);
+          }
+        } catch (e) {
+          console.error('[AprovacaoService] baixarEstoqueVendaLote falhou:', e.message);
+          throw new Error(`Validação bloqueada: ${e.message}`);
+        }
+      } else {
+        // Fallback local direto
+        Store.mutateEstoque(estoque => {
+          (venda.itens || []).forEach(item => {
+            const prod = estoque.find(p => p.id === item.prodId);
+            if (!prod || prod.controlaEstoque === false) return;
+            const qtdDesc = item.label === 'UNID'
+              ? item.qtd
+              : item.qtd * (prod.packs?.find(pk => pk.label === item.label)?.qtd || 1);
+            prod.qtdUn = Math.max(0, (prod.qtdUn || 0) - qtdDesc);
+            prod.estoqueAtual = prod.qtdUn;
+          });
+        });
+        baixaOk = true;
+      }
+    }
+
+    // ── PASSO 4: MUDA STATUS APÓS CONFIRMAÇÃO DA BAIXA ────────────
     Store.mutateVendas(list => {
       const v = list.find(v => v.id === vendaId);
       if (v) {
         v.status      = 'validada';
         v.validadaEm  = Utils.nowISO();
         v.validadaPor = AuthService.getNome();
+        v._baixaOk    = baixaOk;
+        v._baixaErros = baixaErros.length > 0 ? baixaErros : undefined;
       }
     });
 
-    // Libera a reserva — a baixa real de estoque acontece logo abaixo
-    window.CH.EstoqueService?.liberarReserva?.(vendaId);
-
-    // Só sincroniza individualmente se NÃO estiver em lote
     if (!_processandoLote) _sync(vendaId);
 
-    // 2. Baixa estoque
-    const EstoqueService = window.CH.EstoqueService;
-    if (EstoqueService) {
-      for (const item of venda.itens || []) {
-        try {
-          const prod = EstoqueService.getProduto(item.prodId);
-          if (!prod) continue;
-          if (prod.controlaEstoque === false) continue; // produto sem controle de estoque (ex: cigarro)
-          const pack = prod?.packs?.find(pk =>
-            pk.label === item.label || (pk.qtd + 'x') === item.label
-          );
-          const qtdUn = item.label === 'UNID'
-            ? item.qtd
-            : item.qtd * (pack?.qtd || 1);
-          await EstoqueService.baixarEstoqueVenda(item.prodId, qtdUn, venda.id);
-        } catch (e) {
-          console.warn(`[AprovacaoService] Estoque falhou "${item.nome}":`, e.message);
-        }
-      }
-    } else {
-      Store.mutateEstoque(estoque => {
-        (venda.itens || []).forEach(item => {
-          const prod = estoque.find(p => p.id === item.prodId);
-          if (!prod) return;
-          if (prod.controlaEstoque === false) return; // produto sem controle de estoque (ex: cigarro)
-          const qtdDesc = item.label === 'UNID'
-            ? item.qtd
-            : item.qtd * (prod.packs?.find(pk => pk.label === item.label)?.qtd || 1);
-          prod.qtdUn = Math.max(0, (prod.qtdUn || 0) - qtdDesc);
-          prod.estoqueAtual = prod.qtdUn;
+    // ── PASSO 5: Efetiva débito fiado ─────────────────────────────
+    const vendaAtualizada = Store.getVendas().find(v => v.id === vendaId);
+    if (vendaAtualizada?._fiado && vendaAtualizada._fiadoClienteId) {
+      Store.mutateFiado(fiado => {
+        const cx = fiado.find(x => x.id === vendaAtualizada._fiadoClienteId);
+        if (!cx) return;
+        cx.saldo = (cx.saldo || 0) + (vendaAtualizada.total || 0);
+        if (!Array.isArray(cx.movimentacoes)) cx.movimentacoes = [];
+        cx.movimentacoes.unshift({
+          id:          Utils.generateId(),
+          tipo:        'fiado',
+          descricao:   vendaAtualizada._fiadoDesc || vendaAtualizada.itens?.[0]?.nome || 'Compra fiado',
+          valor:       vendaAtualizada.total || 0,
+          vendaId:     vendaAtualizada.id,
+          validadoPor: AuthService.getNome(),
+          criadoEm:    Utils.nowISO(),
         });
+        if (cx.limite > 0 && cx.saldo >= cx.limite) cx.bloqueado = true;
       });
+      if (window.CH.SyncQueue)
+        window.CH.SyncQueue.enqueue('salvar', 'fiado', Store.getFiado());
     }
 
-    // FIX [CRÍTICO]: registrarReceita REMOVIDO daqui.
-    // financeiroService.js tem hook EventBus.on('venda:finalizada', registrarReceita)
-    // — chamada direta + evento causavam receita duplicada para cada venda validada.
-    // O lote (validarTodas) chama diretamente pois emite venda:finalizada:lote, não venda:finalizada.
-
-    // 3. Eventos — só emite se NÃO estiver em lote (evita N re-renders)
+    // ── PASSO 6: Eventos ──────────────────────────────────────────
     if (!_processandoLote) {
-      EventBus.emit('venda:finalizada', venda); // ← hook do financeiroService registra a receita aqui
-      EventBus.emit('venda:validada', venda);
+      const vendaFinal = Store.getVendas().find(v => v.id === vendaId) || venda;
+      EventBus.emit('venda:finalizada', vendaFinal);
+      EventBus.emit('venda:validada', vendaFinal);
     }
 
+    console.info(`[AprovacaoService] ✓ Venda ${vendaId} validada (baixa: ${baixaOk ? 'OK' : 'PARCIAL'})`);
+    return true;
+  }
+
+  // ── TENTAR NOVAMENTE (erro_validacao → aprovada → tenta validar de novo) ──
+  // Reverte a venda para 'aprovada' e chama validarVenda novamente.
+  // Útil quando o erro foi temporário (rede instável) ou o estoque já foi corrigido.
+  async function tentarNovamenteValidacao(vendaId) {
+    if (!_perm('aprovacao_validacao'))
+      throw new Error('Sem permissão para validar vendas');
+
+    const venda = Store.getVendas().find(v => v.id === vendaId);
+    if (!venda) throw new Error('Venda não encontrada');
+    if (venda.status !== 'erro_validacao')
+      throw new Error(`Venda está "${venda.status}", esperado "erro_validacao"`);
+
+    Store.mutateVendas(list => {
+      const v = list.find(v => v.id === vendaId);
+      if (v) {
+        v.status = 'aprovada';
+        // limpa rastro do erro anterior (mantém histórico no log de auditoria, não na venda)
+        delete v.erroValidacaoEm;
+        delete v.erroValidacaoMotivo;
+        delete v.erroValidacaoOperador;
+      }
+    });
+    _sync(vendaId);
+
+    return validarVenda(vendaId);
+  }
+
+  // ── RESOLVER MANUALMENTE (erro_validacao → validada, sem repetir a baixa) ──
+  // Para quando o admin já ajustou o estoque na mão e quer apenas finalizar a venda,
+  // sem que o sistema tente baixar o estoque de novo (evitaria baixa duplicada).
+  function resolverManualmenteValidacao(vendaId, justificativa = '') {
+    if (!_perm('aprovacao_validacao'))
+      throw new Error('Sem permissão para validar vendas');
+    if (!justificativa.trim())
+      throw new Error('Justificativa obrigatória para resolução manual');
+
+    const venda = Store.getVendas().find(v => v.id === vendaId);
+    if (!venda) throw new Error('Venda não encontrada');
+    if (venda.status !== 'erro_validacao')
+      throw new Error(`Venda está "${venda.status}", esperado "erro_validacao"`);
+
+    const agora    = Utils.nowISO();
+    const operador = AuthService.getNome();
+
+    Store.mutateVendas(list => {
+      const v = list.find(v => v.id === vendaId);
+      if (v) {
+        v.status              = 'validada';
+        v.validadaEm           = agora;
+        v.validadaPor          = operador;
+        v._baixaOk             = false;
+        v._resolvidaManualmente = true;
+        v._justificativaManual = justificativa;
+        delete v.erroValidacaoEm;
+        delete v.erroValidacaoMotivo;
+        delete v.erroValidacaoOperador;
+      }
+    });
+
+    window.CH.AuditService?.registrar?.('resolucao_manual', 'aprovacao', {
+      depois:  { vendaId, justificativa },
+      resumo:  `Venda ${vendaId} validada manualmente sem baixa automática — ${justificativa}`,
+    });
+
+    _sync(vendaId);
+
+    // Financeiro e fiado seguem o mesmo caminho de uma validação normal
+    const FS = window.CH.FinanceiroService;
+    if (FS) FS.registrarReceita(venda);
+
+    if (venda._fiado && venda._fiadoClienteId) {
+      Store.mutateFiado(fiado => {
+        const cx = fiado.find(x => x.id === venda._fiadoClienteId);
+        if (!cx) return;
+        cx.saldo = (cx.saldo || 0) + (venda.total || 0);
+        if (!Array.isArray(cx.movimentacoes)) cx.movimentacoes = [];
+        cx.movimentacoes.unshift({
+          id: Utils.generateId(), tipo: 'fiado',
+          descricao: venda._fiadoDesc || venda.itens?.[0]?.nome || 'Compra fiado',
+          valor: venda.total || 0, vendaId: venda.id,
+          validadoPor: operador, criadoEm: agora,
+        });
+        if (cx.limite > 0 && cx.saldo >= cx.limite) cx.bloqueado = true;
+      });
+      if (window.CH.SyncQueue) window.CH.SyncQueue.enqueue('salvar', 'fiado', Store.getFiado());
+    }
+
+    const vendaFinal = Store.getVendas().find(v => v.id === vendaId) || venda;
+    EventBus.emit('venda:finalizada', vendaFinal);
+    EventBus.emit('venda:validada', vendaFinal);
+
+    console.info(`[AprovacaoService] ⚠ Venda ${vendaId} resolvida manualmente (sem baixa automática)`);
     return true;
   }
 
   // ── APROVAR EM LOTE ───────────────────────────────────────────────
-  // Uma única mutação, um único sync → zero loop de re-render
   function aprovarTodas() {
     if (!_perm('aprovacao_controle'))
       throw new Error('Sem permissão para aprovar vendas');
@@ -228,7 +398,6 @@
 
     _processandoLote = true;
     try {
-      // Mutação única — todos os status de uma vez
       Store.mutateVendas(list => {
         ids.forEach(id => {
           const v = list.find(v => v.id === id);
@@ -240,10 +409,7 @@
         });
       });
 
-      // Sync único — todos juntos
       _syncLote(ids);
-
-      // Evento único no final
       EventBus.emit('venda:aprovada:lote', { total: ids.length, operador });
 
     } catch (e) {
@@ -256,107 +422,156 @@
   }
 
   // ── VALIDAR EM LOTE ───────────────────────────────────────────────
-  // Mutação única para status, depois processa efeitos colaterais
-  // sem disparar re-renders entre cada item
   async function validarTodas() {
     if (!_perm('aprovacao_validacao'))
       throw new Error('Sem permissão para validar vendas');
 
     const aprovadas = getAprovadas();
-    if (!aprovadas.length) return { total: 0, erros: [] };
+    if (!aprovadas.length) return { total: 0, sucesso: 0, erros: [] };
 
     const agora    = Utils.nowISO();
     const operador = AuthService.getNome();
-    const ids      = aprovadas.map(v => v.id);
     const erros    = [];
+    const validadas = [];
+    const ES        = window.CH.EstoqueService;
 
     _processandoLote = true;
     try {
-      // ── Passo 1: muda todos os status de uma vez (sem re-render) ──
-      Store.mutateVendas(list => {
-        ids.forEach(id => {
-          const v = list.find(v => v.id === id);
-          if (v && v.status === 'aprovada') {
-            v.status      = 'validada';
-            v.validadaEm  = agora;
-            v.validadaPor = operador;
-          }
-        });
-      });
-
-      // ── Passo 2: sync único para todos ────────────────────────────
-      _syncLote(ids);
-
-      // ── Libera todas as reservas (baixas de estoque acontecem a seguir) ──
-      const ES = window.CH.EstoqueService;
-      if (ES?.liberarReserva) ids.forEach(id => ES.liberarReserva(id));
-
-      // ── Passo 3: efeitos colaterais (estoque + financeiro) ─────────
-      // Processa sem emitir store:updated a cada item
       for (const venda of aprovadas) {
         try {
-          // Estoque
-          const EstoqueService = window.CH.EstoqueService;
-          if (EstoqueService) {
+          // PASSO 1: Verifica estoque (câmbios pulam — não movimentam estoque)
+          if (ES && !venda._cambio) {
+            const errosEstoque = [];
             for (const item of venda.itens || []) {
-              try {
-                const prod = EstoqueService.getProduto(item.prodId);
-                if (!prod) continue;
-                if (prod.controlaEstoque === false) continue; // produto sem controle de estoque (ex: cigarro)
-                const pack = prod?.packs?.find(pk =>
-                  pk.label === item.label || (pk.qtd + 'x') === item.label
-                );
-                const qtdUn = item.label === 'UNID'
-                  ? item.qtd
-                  : item.qtd * (pack?.qtd || 1);
-                await EstoqueService.baixarEstoqueVenda(item.prodId, qtdUn, venda.id);
-              } catch (e) {
-                console.warn(`[Lote] Estoque falhou "${item.nome}":`, e.message);
-              }
+              const prod = ES.getProduto(item.prodId);
+              if (!prod || prod.controlaEstoque === false) continue;
+              const pack  = prod.packs?.find(pk => pk.label === item.label || (pk.qtd + 'x') === item.label);
+              const qtdUn = item.label === 'UNID' ? item.qtd : item.qtd * (pack?.qtd || 1);
+              const disponivel = prod.estoqueAtual ?? prod.qtdUn ?? 0;
+              if (disponivel < qtdUn)
+                errosEstoque.push(`"${prod.nome}": disponível ${disponivel}, necessário ${qtdUn}`);
             }
-          } else {
-            Store.mutateEstoque(estoque => {
-              (venda.itens || []).forEach(item => {
-                const prod = estoque.find(p => p.id === item.prodId);
-                if (!prod) return;
-                if (prod.controlaEstoque === false) return; // produto sem controle de estoque (ex: cigarro)
-                const qtdDesc = item.label === 'UNID'
-                  ? item.qtd
-                  : item.qtd * (prod.packs?.find(pk => pk.label === item.label)?.qtd || 1);
-                prod.qtdUn = Math.max(0, (prod.qtdUn || 0) - qtdDesc);
-                prod.estoqueAtual = prod.qtdUn;
+            if (errosEstoque.length > 0) {
+              const motivo = `Estoque insuficiente: ${errosEstoque.join('; ')}`;
+              erros.push({ id: venda.id, erro: motivo });
+              _marcarErroValidacao(venda.id, motivo, agora, operador);
+              continue;
+            }
+          }
+
+          // PASSO 2: Libera reserva (câmbios pulam)
+          if (!venda._cambio) ES?.liberarReserva?.(venda.id);
+
+          // PASSO 3: Baixa de estoque (câmbios pulam)
+          let baixaOk    = true;   // câmbio ok sem baixa
+          let baixaErros = [];
+
+          if (!venda._cambio) {
+            baixaOk = false;
+            if (ES?.baixarEstoqueVendaLote) {
+              const res = await ES.baixarEstoqueVendaLote(venda);
+              baixaOk    = res.ok && !res.erros?.length;
+              baixaErros = res.erros || [];
+
+              if (!baixaOk) {
+                const motivo = res.localFallback
+                  ? `Baixa aplicada apenas localmente (sem confirmação do Firebase): ${baixaErros.join('; ') || 'motivo desconhecido'}`
+                  : `Baixa falhou ou parcial: ${baixaErros.join('; ') || 'erro desconhecido'}`;
+                erros.push({ id: venda.id, erro: motivo });
+                _marcarErroValidacao(venda.id, motivo, agora, operador);
+                continue;
+              }
+            } else {
+              Store.mutateEstoque(estoque => {
+                (venda.itens || []).forEach(item => {
+                  const prod = estoque.find(p => p.id === item.prodId);
+                  if (!prod || prod.controlaEstoque === false) return;
+                  const qtdDesc = item.label === 'UNID'
+                    ? item.qtd
+                    : item.qtd * (prod.packs?.find(pk => pk.label === item.label)?.qtd || 1);
+                  prod.qtdUn = Math.max(0, (prod.qtdUn || 0) - qtdDesc);
+                  prod.estoqueAtual = prod.qtdUn;
+                });
               });
+              baixaOk = true;
+            }
+          }
+
+          // PASSO 4: Muda status
+          Store.mutateVendas(list => {
+            const v = list.find(v => v.id === venda.id);
+            if (v && v.status === 'aprovada') {
+              v.status      = 'validada';
+              v.validadaEm  = agora;
+              v.validadaPor = operador;
+              v._baixaOk    = baixaOk;
+              v._baixaErros = baixaErros.length > 0 ? baixaErros : undefined;
+            }
+          });
+
+          validadas.push(venda.id);
+
+          // PASSO 5: Financeiro
+          const FS = window.CH.FinanceiroService;
+          if (FS) FS.registrarReceita(venda);
+
+          // PASSO 6: Fiado
+          if (venda._fiado && venda._fiadoClienteId) {
+            Store.mutateFiado(fiado => {
+              const cx = fiado.find(x => x.id === venda._fiadoClienteId);
+              if (!cx) return;
+              cx.saldo = (cx.saldo || 0) + (venda.total || 0);
+              if (!Array.isArray(cx.movimentacoes)) cx.movimentacoes = [];
+              cx.movimentacoes.unshift({
+                id:          Utils.generateId(),
+                tipo:        'fiado',
+                descricao:   venda._fiadoDesc || venda.itens?.[0]?.nome || 'Compra fiado',
+                valor:       venda.total || 0,
+                vendaId:     venda.id,
+                validadoPor: operador,
+                criadoEm:    agora,
+              });
+              if (cx.limite > 0 && cx.saldo >= cx.limite) cx.bloqueado = true;
             });
           }
 
-          // Financeiro
-          const FinanceiroService = window.CH.FinanceiroService;
-          if (FinanceiroService) FinanceiroService.registrarReceita(venda);
+          console.info(`[Lote] ✓ Venda ${venda.id} validada (baixa: ${baixaOk ? 'OK' : 'PARCIAL'})`);
 
         } catch (e) {
           erros.push({ id: venda.id, erro: e.message });
+          console.error(`[Lote] ✗ Venda ${venda.id} falhou:`, e.message);
         }
       }
 
-      // ── Passo 4: evento único no final — UI re-renderiza UMA vez ──
-      EventBus.emit('venda:validada:lote', { total: ids.length, operador });
-      EventBus.emit('venda:finalizada:lote', aprovadas);
+      if (validadas.length > 0) _syncLote(validadas);
+
+      const temFiado = aprovadas.some(v => v._fiado && v._fiadoClienteId);
+      if (temFiado && window.CH.SyncQueue)
+        window.CH.SyncQueue.enqueue('salvar', 'fiado', Store.getFiado());
+
+      if (validadas.length > 0) {
+        EventBus.emit('venda:validada:lote', { total: validadas.length, operador, erros: erros.length });
+        const vendasValidadas = Store.getVendas().filter(v => validadas.includes(v.id));
+        EventBus.emit('venda:finalizada:lote', vendasValidadas);
+      }
 
     } finally {
       _processandoLote = false;
     }
 
-    return { total: aprovadas.length, erros };
+    console.info(`[AprovacaoService] Lote concluído: ${validadas.length} validadas, ${erros.length} erros`);
+    return { total: aprovadas.length, sucesso: validadas.length, erros };
   }
 
   // Exposição
   window.CH.AprovacaoService = {
-    getPendentes, getAprovadas, getRejeitadas, getValidadas,
-    contarPendentes, contarAprovadas,
+    getPendentes, getAprovadas, getRejeitadas, getValidadas, getErrosValidacao,
+    contarPendentes, contarAprovadas, contarErrosValidacao,
     aprovarVenda, rejeitarVenda, validarVenda,
+    tentarNovamenteValidacao, resolverManualmenteValidacao,
     aprovarTodas, validarTodas,
     isProcessandoLote: () => _processandoLote,
   };
 
-  console.info('%c AprovacaoService ✓  (lote: mutação única | sem loop de re-render)', 'color:#f59e0b;font-weight:bold');
+  console.info('%c AprovacaoService ✓  (baixa antes do status | sem IntegrityService)', 'color:#f59e0b;font-weight:bold');
 })();

@@ -28,10 +28,8 @@
 
   function _vendasPeriodo(de, ate) {
     const vendas = Store.getVendas() || [];
-    // FIX [MÉDIO]: 'aprovada' removida dos KPIs financeiros.
-    // Status 'aprovada' = estoque ainda não baixado, receita não confirmada.
-    // Incluir 'aprovada' inflava receita, CMV e ticket médio com vendas não finalizadas.
-    const STATUS_VALIDOS = ['concluida', 'validada'];
+    // 'aprovada' também conta — é concluída aguardando validação
+    const STATUS_VALIDOS = ['concluida', 'validada', 'aprovada'];
     return vendas.filter(v =>
       STATUS_VALIDOS.includes(v.status || 'concluida') &&
       (!de  || v.dataCurta >= de) &&
@@ -42,8 +40,7 @@
   function _diasAtras(n) {
     const d = new Date();
     d.setDate(d.getDate() - n);
-    // FIX [ALTO]: toISOString() retorna UTC — períodos de análise ficavam errados após 21h BRT
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    return _localDateISO(d); // FIX #5c
   }
 
   function _mesAtual() {
@@ -422,25 +419,15 @@
     const FinSvc = window.CH?.FinanceiroService;
     if (FinSvc?.getFluxoCaixa) return FinSvc.getFluxoCaixa(de, ate);
 
-    // FIX [MÉDIO]: fallback só contava receitas — estornos e cancelamentos ignorados.
-    // Fluxo de caixa com cancelamentos ficava inflado.
+    // Fallback: calcula direto das vendas
     const vendas = _vendasPeriodo(de, ate);
-    const canceladas = (Store.getVendas() || []).filter(v =>
-      v.status === 'cancelada' && v.dataCurta >= de && v.dataCurta <= ate
-    );
     const dias = {};
     vendas.forEach(v => {
-      if (!dias[v.dataCurta]) dias[v.dataCurta] = { data: v.dataCurta, receitas: 0, estornos: 0, saldo: 0, qtd: 0 };
+      if (!dias[v.dataCurta]) dias[v.dataCurta] = { data: v.dataCurta, receitas: 0, qtd: 0 };
       dias[v.dataCurta].receitas += v.total || 0;
       dias[v.dataCurta].qtd++;
     });
-    canceladas.forEach(v => {
-      if (!dias[v.dataCurta]) dias[v.dataCurta] = { data: v.dataCurta, receitas: 0, estornos: 0, saldo: 0, qtd: 0 };
-      dias[v.dataCurta].estornos += v.total || 0;
-    });
-    const result = Object.values(dias).sort((a, b) => a.data.localeCompare(b.data));
-    result.forEach(d => { d.saldo = d.receitas - d.estornos; });
-    return result;
+    return Object.values(dias).sort((a, b) => a.data.localeCompare(b.data));
   }
 
   // ══════════════════════════════════════════════════════════════════
@@ -504,10 +491,8 @@
     const totalMes   = vendasMes.reduce((s, v) => s + (v.total || 0), 0);
     const lucroMes   = vendasMes.reduce((s, v) => s + (v.lucro  || 0), 0);
 
-    // FIX [MÉDIO]: CMV do mês deve usar o período do mês, não os últimos 30 dias.
-    // Antes, mes.cmv e mes.margem usavam cmv30 (30d ≠ mês atual — no dia 5 do mês, 30d inclui mês anterior).
-    const cmvMes = getCMV(mes_de, mes_ate);
-    const cmv30  = getCMV(de30, hoje); // mantido só para alertas de qualidade de dados
+    // CMV e margem (30 dias)
+    const cmv30 = getCMV(de30, hoje);
 
     // ── Qualidade dos dados de custo ──────────────────────────────
     const todasVendas30 = _vendasPeriodo(de30, hoje);
@@ -550,8 +535,8 @@
         vendas:  vendasMes.length,
         receita: totalMes,
         lucro:   lucroMes,
-        cmv:     cmvMes.cmv,       // FIX: usa período do mês, não 30 dias
-        margem:  cmvMes.margemPercentual,
+        cmv:     cmv30.cmv,
+        margem:  cmv30.margemPercentual,
       },
       comparativo,
       abc: {

@@ -24,22 +24,20 @@
       config:'CH_CONFIG', auditoria:'CH_AUDITORIA',
       movimentacoes:'CH_MOVIMENTACOES', categorias:'CH_CATEGORIAS',
       fornecedores:'CH_FORNECEDORES', financeiro:'CH_FINANCEIRO',
-      saidas:'CH_SAIDAS',
-      contagens:'CH_CONTAGENS',
+      saidas:'CH_SAIDAS', validade:'CH_VALIDADE',
     };
 
     const _empty = {
       estoque:[], vendas:[], comandas:[], fiado:[], ponto:[],
       pedidos:[], auditoria:[], config:{}, movimentacoes:[],
-      categorias:[], fornecedores:[], financeiro:[], saidas:[], contagens:[],
+      categorias:[], fornecedores:[], financeiro:[], saidas:[],
     };
 
     const _limits = {
       vendas:CONSTANTS.MAX_VENDAS, ponto:CONSTANTS.MAX_PONTO,
       pedidos:CONSTANTS.MAX_PEDIDOS, auditoria:CONSTANTS.MAX_AUDITORIA,
       comandas:CONSTANTS.MAX_COMANDAS, movimentacoes:CONSTANTS.MAX_MOVIMENTACOES,
-      financeiro:CONSTANTS.MAX_FINANCEIRO,
-      contagens:CONSTANTS.MAX_CONTAGENS, saidas:CONSTANTS.MAX_SAIDAS,
+      financeiro:CONSTANTS.MAX_FINANCEIRO, saidas:CONSTANTS.MAX_SAIDAS,
     };
 
     function _read(col) {
@@ -148,7 +146,6 @@
       getFornecedores()  { return _read('fornecedores'); },
       getFinanceiro()    { return _read('financeiro'); },
       getSaidas()        { return _read('saidas'); },
-      getContagens()     { return _read('contagens'); },
 
       getVendasHoje() {
         const hoje = Utils.todayISO();
@@ -187,7 +184,6 @@
       mutateFornecedores(fn)  { _mutate('fornecedores',  fn); },
       mutateFinanceiro(fn)    { _mutate('financeiro',    fn); },
       mutateSaidas(fn)        { _mutate('saidas',        fn); },
-      mutateContagens(fn)   { _mutate('contagens',   fn); },
 
       invalidate(col) {
         if (col) delete _cache[col];
@@ -259,7 +255,6 @@
         getCategorias()    { return Store.getCategorias(); },
         getFornecedores()  { return Store.getFornecedores(); },
         getFinanceiro()    { return Store.getFinanceiro(); },
-        getContagens()     { return Store.getContagens(); },
         getConfig()        { return Store.getConfig(); },
         getInvestimento()  { return Store.getInvestimento(); },
         getLowStock()      { return Store.getLowStock(); },
