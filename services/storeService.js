@@ -30,7 +30,7 @@
     const _empty = {
       estoque:[], vendas:[], comandas:[], fiado:[], ponto:[],
       pedidos:[], auditoria:[], config:{}, movimentacoes:[],
-      categorias:[], fornecedores:[], financeiro:[], saidas:[],
+      categorias:[], fornecedores:[], financeiro:[], saidas:[], validade:[],
     };
 
     const _limits = {
@@ -38,6 +38,7 @@
       pedidos:CONSTANTS.MAX_PEDIDOS, auditoria:CONSTANTS.MAX_AUDITORIA,
       comandas:CONSTANTS.MAX_COMANDAS, movimentacoes:CONSTANTS.MAX_MOVIMENTACOES,
       financeiro:CONSTANTS.MAX_FINANCEIRO, saidas:CONSTANTS.MAX_SAIDAS,
+      validade:5_000,
     };
 
     function _read(col) {
@@ -146,6 +147,7 @@
       getFornecedores()  { return _read('fornecedores'); },
       getFinanceiro()    { return _read('financeiro'); },
       getSaidas()        { return _read('saidas'); },
+      getValidade()      { return _read('validade'); },
 
       getVendasHoje() {
         const hoje = Utils.todayISO();
@@ -184,6 +186,7 @@
       mutateFornecedores(fn)  { _mutate('fornecedores',  fn); },
       mutateFinanceiro(fn)    { _mutate('financeiro',    fn); },
       mutateSaidas(fn)        { _mutate('saidas',        fn); },
+      mutateValidade(fn)      { _mutate('validade',      fn); },
 
       invalidate(col) {
         if (col) delete _cache[col];
@@ -192,7 +195,7 @@
 
       _writeRaw(col, data) { _write(col, data); _notify(col); },
 
-      purgeOldData({ diasVendas=30, diasFinanceiro=30, diasAuditoria=7, diasMovimentacoes=14 }={}) {
+      purgeOldData({ diasVendas=30, diasFinanceiro=30, diasAuditoria=7, diasMovimentacoes=14, diasSaidas=90 }={}) {
         const corte = (dias) => { const d=new Date(); d.setDate(d.getDate()-dias); return d.toISOString().slice(0,10); };
         let purged={};
         const purgeOne = (col, dtCorte, campo) => {
@@ -204,8 +207,13 @@
         purgeOne('financeiro','dataCurta',corte(diasFinanceiro));
         purgeOne('auditoria','dataCurta',corte(diasAuditoria));
         purgeOne('movimentacoes','dataCurta',corte(diasMovimentacoes));
-        purgeOne('saidas','dataCurta',corte(diasSaidas||90));
-        ['vendas','financeiro','auditoria','movimentacoes','saidas'].forEach(c=>delete _cache[c]);
+        purgeOne('saidas','dataCurta',corte(diasSaidas));
+        // Validade: remove lotes descartados há mais de 365 dias
+        const valAntes=_read('validade').length;
+        const cortaVal=corte(365);
+        const valFilt=(_read('validade')||[]).filter(l=>!l.descartado||(l.descartadoEm||l.criadoEm||'')>=cortaVal);
+        if(valFilt.length<valAntes){_write('validade',valFilt);purged.validade=valAntes-valFilt.length;}
+        ['vendas','financeiro','auditoria','movimentacoes','saidas','validade'].forEach(c=>delete _cache[c]);
         const total=Object.values(purged).reduce((s,n)=>s+n,0);
         if(total>0){console.info('[Store] Purge:',purged,`— ${total} registros removidos`);EventBus.emit('store:purged',purged);}
         return purged;
@@ -255,6 +263,8 @@
         getCategorias()    { return Store.getCategorias(); },
         getFornecedores()  { return Store.getFornecedores(); },
         getFinanceiro()    { return Store.getFinanceiro(); },
+        getSaidas()        { return Store.getSaidas(); },
+        getValidade()      { return Store.getValidade(); },
         getConfig()        { return Store.getConfig(); },
         getInvestimento()  { return Store.getInvestimento(); },
         getLowStock()      { return Store.getLowStock(); },
