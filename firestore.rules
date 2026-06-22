@@ -90,6 +90,28 @@ service cloud.firestore {
       allow write: if autenticado() && docValido(request.resource.data) && temAdminToken(request.resource.data);
     }
 
+    // ─── /ch_dados/saidas — qualquer autenticado pode escrever ─────
+    // Saídas são registradas por gerente sem adminToken.
+    // Override necessário pois a regra genérica exige adminToken.
+    match /ch_dados/saidas {
+      allow read:  if autenticado();
+      allow write: if autenticado() && docValido(request.resource.data);
+    }
+
+    // ─── /ch_dados/validade — qualquer autenticado pode escrever ───
+    // Lotes de validade são cadastrados por gerente/operador sem adminToken.
+    match /ch_dados/validade {
+      allow read:  if autenticado();
+      allow write: if autenticado() && docValido(request.resource.data);
+    }
+
+    // ─── /ch_dados/contagens — qualquer autenticado pode escrever ──
+    // Contagens de estoque são iniciadas por operadores sem adminToken.
+    match /ch_dados/contagens {
+      allow read:  if autenticado();
+      allow write: if autenticado() && docValido(request.resource.data);
+    }
+
     // ─── /ch_dados/{colecao} ─────────────────────────────────────────
     match /ch_dados/{colecao} {
 

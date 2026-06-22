@@ -537,7 +537,7 @@ body.is-admin .valid-only { display: block; }
     </a>
 
     <!-- SAÍDAS -->
-    <a href="saidas.html" class="app-card c-red" data-modulo="financeiro" style="animation-delay:.17s;display:none">
+    <a href="saidas.html" class="app-card c-red" data-modulo="saidas" style="animation-delay:.17s;display:none">
       <div class="app-badge" id="badgeSaidas"></div>
       <div class="app-icon">💸</div>
       <div class="app-name">Saídas</div>
@@ -568,14 +568,19 @@ body.is-admin .valid-only { display: block; }
       <div class="app-desc">Clientes · Saldo · Receber</div>
     </a>
 
-    <!-- CÂMBIO -->
-    <a href="validade.html" class="app-card c-red" data-modulo="validade" style="animation-delay:.34s">
-      <div class="card-icon">📅</div>
-      <div class="card-body">
-        <p class="card-title">Validade</p>
-        <p class="card-sub">Lotes · Vencimentos · Alertas</p>
-      </div>
-      <i class="fas fa-chevron-right card-arrow"></i>
+    <!-- VALIDADE -->
+    <a href="validade.html" class="app-card c-red" data-modulo="validade" style="animation-delay:.34s;display:none">
+      <div class="app-badge" id="badgeValidade"></div>
+      <div class="app-icon">📅</div>
+      <div class="app-name">Validade</div>
+      <div class="app-desc">Lotes · Vencimentos · Alertas</div>
+    </a>
+
+    <!-- CONTAGEM -->
+    <a href="contagem.html" class="app-card c-green" data-modulo="contagem" style="animation-delay:.36s;display:none">
+      <div class="app-icon">🔢</div>
+      <div class="app-name">Contagem</div>
+      <div class="app-desc">Inventário · Conferência · Aprovação</div>
     </a>
 
     <a href="cambio.html" class="app-card c-amber" data-modulo="cambio" style="animation-delay:.33s">
@@ -1610,6 +1615,27 @@ function _aplicarPermissoesHub() {
     if (mod === 'cambio') {
       const PODE_CAMBIO = ['adm','admin','gerente'];
       const ok = PODE_CAMBIO.includes(role) || (Perm && Perm.temAcesso(role,'cambio'));
+      card.style.display = ok ? '' : 'none';
+      return;
+    }
+    // saidas: admin/gerente por padrão, ou perfil com acesso ao módulo
+    if (mod === 'saidas') {
+      const PODE_SAIDAS = ['adm','admin','gerente'];
+      const ok = PODE_SAIDAS.includes(role) || (Perm && Perm.temAcesso(role,'saidas'));
+      card.style.display = ok ? '' : 'none';
+      return;
+    }
+    // contagem: admin/gerente/operador por padrão, ou perfil com acesso ao módulo
+    if (mod === 'contagem') {
+      const PODE_CONTAGEM = ['adm','admin','gerente','operador'];
+      const ok = PODE_CONTAGEM.includes(role) || (Perm && Perm.temAcesso(role,'contagem'));
+      card.style.display = ok ? '' : 'none';
+      return;
+    }
+    // validade: admin/gerente/operador por padrão, ou perfil com acesso ao módulo
+    if (mod === 'validade') {
+      const PODE_VALIDADE = ['adm','admin','gerente','operador'];
+      const ok = PODE_VALIDADE.includes(role) || (Perm && Perm.temAcesso(role,'validade'));
       card.style.display = ok ? '' : 'none';
       return;
     }

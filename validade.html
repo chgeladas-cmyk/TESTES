@@ -244,23 +244,40 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#060810;background-im
 // NUNCA redeclarar globals do core.js como const no topo
 // Padrão do projeto: acessar via window.CH.X dentro das funções
 function _Auth()     { return window.CH.AuthService; }
-function _Store()    { return window.CH.Store; }
+function _Store()    { return window.CH?.Store; }
 function _Utils()    { return window.CH.Utils; }
 function _Telegram() { return window.CH.TelegramService; }
 function _Bus()      { return window.CH.EventBus; }
 
+/* getLotes/saveLotes/mutateLotes — usam Store.getValidade/mutateValidade
+   para garantir sync automático via SyncQueue → Firestore.
+   Fallback para localStorage direto (CH_VALIDADE) se Store ainda não estiver pronto. */
 const STORAGE_KEY = 'CH_VALIDADE';
 
 function getLotes() {
+  const st = _Store();
+  if (st && typeof st.getValidade === 'function') return st.getValidade() || [];
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
 }
 function saveLotes(arr) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
+  const st = _Store();
+  if (st && typeof st.mutateValidade === 'function') {
+    st.mutateValidade(() => arr);
+    return;
+  }
+  // fallback
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); } catch {}
 }
 function mutateLotes(fn) {
+  const st = _Store();
+  if (st && typeof st.mutateValidade === 'function') {
+    st.mutateValidade(arr => { fn(arr); });
+    return;
+  }
+  // fallback
   const arr = getLotes();
   fn(arr);
-  saveLotes(arr);
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); } catch {}
 }
 
 function hoje() {
@@ -503,9 +520,6 @@ function salvarLote() {
   atualizarKpis();
   render();
   showToast(_modoEdicao ? 'Lote atualizado!' : 'Lote cadastrado!', nome, 'success');
-
-  // sincroniza com Firebase
-  if (window.CH?.SyncQueue) window.CH.SyncQueue.enqueue('salvar', 'validade', getLotes());
 }
 
 /* ═══════════════ DETALHE ═══════════════ */
@@ -556,7 +570,6 @@ function descartarLote(id, nome) {
   atualizarKpis();
   render();
   showToast('Lote descartado', nome, 'warning');
-  if (window.CH?.SyncQueue) window.CH.SyncQueue.enqueue('salvar', 'validade', getLotes());
 }
 
 /* ═══════════════ ALERTAS TELEGRAM ═══════════════ */

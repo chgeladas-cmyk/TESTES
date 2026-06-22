@@ -29,6 +29,8 @@ const CONSTANTS = Object.freeze({
   FINANCEIRO:     'CH_FINANCEIRO',
   SAIDAS:         'CH_SAIDAS',
   CAMBIO:         'CH_CAMBIO',
+  VALIDADE:       'CH_VALIDADE',
+  CONTAGENS:      'CH_CONTAGENS',
   PERFIS:         'CH_PERFIS',
   SYNC_QUEUE:     'CH_SYNC_QUEUE',
   }),
@@ -65,12 +67,12 @@ const CONSTANTS = Object.freeze({
     escrever: ['vendas'],
   }),
   admin: Object.freeze({
-    ler:      ['estoque','vendas','comandas','fiado','ponto','pedidos','config','auditoria','movimentacoes','categorias','fornecedores','financeiro','saidas','cambio','perfis'],
-    escrever: ['estoque','vendas','comandas','fiado','ponto','pedidos','config','auditoria','movimentacoes','categorias','fornecedores','financeiro','saidas','cambio','perfis'],
+    ler:      ['estoque','vendas','comandas','fiado','ponto','pedidos','config','auditoria','movimentacoes','categorias','fornecedores','financeiro','saidas','cambio','validade','contagens','perfis'],
+    escrever: ['estoque','vendas','comandas','fiado','ponto','pedidos','config','auditoria','movimentacoes','categorias','fornecedores','financeiro','saidas','cambio','validade','contagens','perfis'],
   }),
   adm: Object.freeze({
-    ler:      ['estoque','vendas','comandas','fiado','ponto','pedidos','config','auditoria','movimentacoes','categorias','fornecedores','financeiro','saidas','cambio','perfis'],
-    escrever: ['estoque','vendas','comandas','fiado','ponto','pedidos','config','auditoria','movimentacoes','categorias','fornecedores','financeiro','saidas','cambio','perfis'],
+    ler:      ['estoque','vendas','comandas','fiado','ponto','pedidos','config','auditoria','movimentacoes','categorias','fornecedores','financeiro','saidas','cambio','validade','contagens','perfis'],
+    escrever: ['estoque','vendas','comandas','fiado','ponto','pedidos','config','auditoria','movimentacoes','categorias','fornecedores','financeiro','saidas','cambio','validade','contagens','perfis'],
   }),
   colaborador: Object.freeze({
     ler:      ['vendas', 'comandas', 'fiado', 'ponto', 'perfis'],
@@ -92,8 +94,8 @@ const CONSTANTS = Object.freeze({
     escrever: ['aprovacao', 'ponto'],
   }),
   gerente: Object.freeze({
-    ler:      ['estoque','vendas','comandas','fiado','ponto','financeiro','cambio','perfis'],
-    escrever: ['estoque','vendas','comandas','fiado','ponto','financeiro','cambio','perfis'],
+    ler:      ['estoque','vendas','comandas','fiado','ponto','financeiro','saidas','cambio','validade','perfis'],
+    escrever: ['estoque','vendas','comandas','fiado','ponto','financeiro','saidas','cambio','validade','perfis'],
   }),
   operador: Object.freeze({
     ler:      ['estoque','vendas','comandas','fiado','ponto','perfis'],
@@ -208,12 +210,15 @@ const Store = (() => {
   fornecedores:  CONSTANTS.DB.FORNECEDORES,
   financeiro:    CONSTANTS.DB.FINANCEIRO,
   saidas:        CONSTANTS.DB.SAIDAS,
+  cambio:        CONSTANTS.DB.CAMBIO,
+  validade:      CONSTANTS.DB.VALIDADE,
   };
 
   const _empty = {
   estoque:[], vendas:[], comandas:[], fiado:[],
   ponto:[], pedidos:[], auditoria:[], config:{},
   movimentacoes:[], categorias:[], fornecedores:[], financeiro:[], saidas:[],
+  cambio:[], validade:[],
   };
 
   const _limits = {
@@ -222,6 +227,7 @@ const Store = (() => {
   comandas: CONSTANTS.MAX_COMANDAS, movimentacoes: CONSTANTS.MAX_MOVIMENTACOES,
   financeiro: CONSTANTS.MAX_FINANCEIRO,
   saidas:     CONSTANTS.MAX_SAIDAS,
+  validade:   5_000,
   };
 
   function _read(col) {
@@ -348,6 +354,8 @@ const Store = (() => {
   getFornecedores()  { return _read('fornecedores'); },
   getFinanceiro()    { return _read('financeiro'); },
   getSaidas()        { return _read('saidas'); },
+  getCambio()        { return _read('cambio'); },
+  getValidade()      { return _read('validade'); },
 
   getVendasHoje() {
     const hoje = Utils.todayISO();
@@ -386,6 +394,8 @@ const Store = (() => {
   mutateFornecedores(fn)  { _mutate('fornecedores',  fn); },
   mutateFinanceiro(fn)    { _mutate('financeiro',    fn); },
   mutateSaidas(fn)        { _mutate('saidas',        fn); },
+  mutateCambio(fn)        { _mutate('cambio',        fn); },
+  mutateValidade(fn)      { _mutate('validade',      fn); },
 
   invalidate(col) {
     if (col) delete _cache[col];
@@ -455,7 +465,18 @@ const Store = (() => {
    purged.saidas = saiAntes - saiFiltradas.length;
     }
 
-    ['vendas','financeiro','auditoria','movimentacoes','saidas'].forEach(c => delete _cache[c]);
+    // Validade — remove lotes descartados há mais de 365 dias
+    const valAntes = _read('validade').length;
+    const cortaVal = corte(365);
+    const valFiltrados = _read('validade').filter(l =>
+      !l.descartado || (l.descartadoEm || l.criadoEm || '') >= cortaVal
+    );
+    if (valFiltrados.length < valAntes) {
+      _write('validade', valFiltrados);
+      purged.validade = valAntes - valFiltrados.length;
+    }
+
+    ['vendas','financeiro','auditoria','movimentacoes','saidas','validade'].forEach(c => delete _cache[c]);
 
     const total = Object.values(purged).reduce((s, n) => s + n, 0);
     if (total > 0) {
@@ -562,6 +583,9 @@ const Store = (() => {
     getCategorias()    { return Store.getCategorias(); },
     getFornecedores()  { return Store.getFornecedores(); },
     getFinanceiro()    { return Store.getFinanceiro(); },
+    getSaidas()        { return Store.getSaidas(); },
+    getCambio()        { return Store.getCambio(); },
+    getValidade()      { return Store.getValidade(); },
     getConfig()        { return Store.getConfig(); },
     getInvestimento()  { return Store.getInvestimento(); },
     getLowStock()      { return Store.getLowStock(); },
@@ -667,7 +691,7 @@ const FirebaseService = (() => {
   }
   function _rtColForKey(key) {
     if (_rtKeyToCol[key]) return _rtKeyToCol[key];
-    for (const col of ['estoque','config','fiado','comandas','pedidos','saidas','financeiro','ponto']) {
+    for (const col of ['estoque','config','fiado','comandas','pedidos','saidas','financeiro','ponto','validade','cambio']) {
       if (CONSTANTS.DB[col.toUpperCase()] === key) { _rtKeyToCol[key] = col; return col; }
     }
     return null;
@@ -749,7 +773,7 @@ const FirebaseService = (() => {
   if (!role || !_db || !_fb) return;
 
   const colsRT = (role === 'admin' || role === 'adm')
-    ? ['estoque', 'config', 'fiado', 'comandas', 'pedidos', 'saidas', 'financeiro', 'usuarios', 'ponto']
+    ? ['estoque', 'config', 'fiado', 'comandas', 'pedidos', 'saidas', 'financeiro', 'usuarios', 'ponto', 'validade', 'contagens']
     : ['estoque', 'config', 'usuarios'];
 
   // ── Listener em tempo real para coleção vendas ────────────────────
