@@ -27,7 +27,11 @@
  */
 
 (function () {
-  const { Store, AuthService, Utils, EventBus, EstoqueService } = window.CH;
+  function _Store()    { return window.CH.Store; }
+  function _Auth()     { return window.CH.AuthService; }
+  function _Utils()    { return window.CH.Utils; }
+  function _Bus()      { return window.CH.EventBus; }
+  function _Estoque()  { return window.CH.EstoqueService; }
 
   const _KEY_LS   = 'CH_CONTAGENS';
   const _MAX      = 2_000;
@@ -51,14 +55,14 @@
     lista.unshift(contagem); // mais recente primeiro
     _salvar(lista);
     _sincronizar(contagem);
-    EventBus.emit('contagem:salva', contagem);
+    _Bus().emit('contagem:salva', contagem);
   }
 
   function _atualizarLocal(id, campos) {
     const lista = _ler();
     const idx   = lista.findIndex(c => c.id === id);
     if (idx < 0) return null;
-    Object.assign(lista[idx], campos, { updatedAt: Utils.nowISO() });
+    Object.assign(lista[idx], campos, { updatedAt: _Utils().nowISO() });
     _salvar(lista);
     return lista[idx];
   }
@@ -68,10 +72,10 @@
     try {
       const FB = window.CH?.FirebaseService;
       if (!FB?.isReady?.()) return;
-      const adminToken = Store.getConfig()?.adminToken;
+      const adminToken = _Store().getConfig()?.adminToken;
       // contagem pendente pode ser criada por colaborador (sem adminToken)
       // aprovação/ajuste exige adminToken — validado na função aplicarAjustes
-      const payload = { dados: contagem, ts: Utils.nowISO() };
+      const payload = { dados: contagem, ts: _Utils().nowISO() };
       if (adminToken) payload.adminToken = adminToken;
       FB.salvar('contagens', contagem.id, payload).catch(e =>
         console.warn('[ContagemService] sync falhou:', e.message)
@@ -91,7 +95,7 @@
    * Usado para montar a UI de contagem.
    */
   function getSnapshotCego() {
-    const produtos = EstoqueService.getProdutos().filter(p => p.ativo !== false);
+    const produtos = _Estoque().getProdutos().filter(p => p.ativo !== false);
     const categorias = {};
 
     for (const p of produtos) {
@@ -133,9 +137,9 @@
       throw new Error('Nenhum item contado.');
     }
 
-    const operador = AuthService.getNome();
-    const agora    = Utils.nowISO();
-    const hoje     = Utils.todayISO();
+    const operador = _Auth().getNome();
+    const agora    = _Utils().nowISO();
+    const hoje     = _Utils().todayISO();
 
     // Monta itens com divergência calculada
     const itens = [];
@@ -144,7 +148,7 @@
     let valorDivergVenda  = 0;
 
     for (const ic of itensContados) {
-      const prod = EstoqueService.getProduto(ic.produtoId);
+      const prod = _Estoque().getProduto(ic.produtoId);
       if (!prod) continue;
 
       const sistemaSistema = prod.estoqueAtual ?? prod.qtdUn ?? 0;
@@ -175,7 +179,7 @@
     }
 
     const contagem = {
-      id:              Utils.generateId(),
+      id:              _Utils().generateId(),
       tipo,
       dataCurta:       hoje,
       timestamp:       agora,
@@ -209,10 +213,10 @@
   /**
    * Admin aprova e aplica os ajustes de estoque da contagem.
    * Aplica apenas itens com diferença != 0.
-   * Chama EstoqueService.ajustarEstoque() para cada divergência.
+   * Chama _Estoque().ajustarEstoque() para cada divergência.
    */
   async function aplicarAjustes(contagemId) {
-    if (!AuthService.isAdmin()) {
+    if (!_Auth().isAdmin()) {
       throw new Error('Apenas admin pode aplicar ajustes de contagem.');
     }
 
@@ -228,10 +232,10 @@
     for (const item of contagem.itens) {
       if (item.diferenca === 0) continue;
       try {
-        await EstoqueService.ajustarEstoque(
+        await _Estoque().ajustarEstoque(
           item.produtoId,
           item.estoqueContado,
-          `Contagem ${contagem.tipo} — ${contagem.dataCurta} — por ${AuthService.getNome()}`
+          `Contagem ${contagem.tipo} — ${contagem.dataCurta} — por ${_Auth().getNome()}`
         );
         itensAjustados.push(item.produtoId);
       } catch (e) {
@@ -243,15 +247,15 @@
     const camposAtualizar = {
       status:          'aprovada',
       ajustesAplicados: true,
-      aprovadoPor:     AuthService.getNome(),
-      aprovadoEm:      Utils.nowISO(),
+      aprovadoPor:     _Auth().getNome(),
+      aprovadoEm:      _Utils().nowISO(),
       itensAjustados,
       errosAjuste:     erros,
     };
 
     const contagemAtualizada = _atualizarLocal(contagemId, camposAtualizar);
     _sincronizar(contagemAtualizada);
-    EventBus.emit('contagem:aprovada', { contagemId, erros });
+    _Bus().emit('contagem:aprovada', { contagemId, erros });
 
     console.info(`[ContagemService] Ajustes aplicados — ${itensAjustados.length} produtos, ${erros.length} erros`);
     return { ok: erros.length === 0, itensAjustados, erros };
@@ -261,7 +265,7 @@
    * Admin rejeita contagem (não aplica ajustes).
    */
   function rejeitarContagem(contagemId, motivoRejeicao = '') {
-    if (!AuthService.isAdmin()) {
+    if (!_Auth().isAdmin()) {
       throw new Error('Apenas admin pode rejeitar contagens.');
     }
 
@@ -270,13 +274,13 @@
 
     const atualizada = _atualizarLocal(contagemId, {
       status:        'rejeitada',
-      rejeitadoPor:  AuthService.getNome(),
-      rejeitadoEm:   Utils.nowISO(),
+      rejeitadoPor:  _Auth().getNome(),
+      rejeitadoEm:   _Utils().nowISO(),
       motivoRejeicao,
     });
 
     _sincronizar(atualizada);
-    EventBus.emit('contagem:rejeitada', { contagemId, motivoRejeicao });
+    _Bus().emit('contagem:rejeitada', { contagemId, motivoRejeicao });
     return atualizada;
   }
 

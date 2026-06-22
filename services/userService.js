@@ -5,7 +5,11 @@
  */
 
 (function () {
-  const { Store, AuthService, Utils, EventBus, CryptoService } = window.CH;
+  function _Store()    { return window.CH.Store; }
+  function _Auth()     { return window.CH.AuthService; }
+  function _Utils()    { return window.CH.Utils; }
+  function _Bus()      { return window.CH.EventBus; }
+  function _Crypto()   { return window.CH.CryptoService; }
 
   const USERS_KEY = 'CH_USERS';
 
@@ -127,27 +131,27 @@
       throw new Error('Senha deve ter pelo menos 3 caracteres');
 
     const users     = _loadUsers();
-    const senhaHash = await CryptoService.sha256(String(credencial).trim());
+    const senhaHash = await _Crypto().sha256(String(credencial).trim());
     const nomeNorm  = nome.trim().toLowerCase();
 
     if (users.find(u => u.nomeNorm === nomeNorm && u.ativo !== false))
       throw new Error('Ja existe um usuario ativo com este nome');
 
     const user = {
-      id:        Utils.generateId(),
+      id:        _Utils().generateId(),
       nome:      nome.trim(),
       nomeNorm,
       role,
       senhaHash,
       ativo:     true,
-      criadoEm:  Utils.nowISO(),
-      criadoPor: AuthService.getNome(),
+      criadoEm:  _Utils().nowISO(),
+      criadoPor: _Auth().getNome(),
     };
 
     users.push(user);
     _saveUsers(users);
     await _pushFirebase(users);
-    EventBus.emit('usuario:criado', { id: user.id, nome: user.nome, role: user.role });
+    _Bus().emit('usuario:criado', { id: user.id, nome: user.nome, role: user.role });
     return { ...user, senhaHash: undefined };
   }
 
@@ -157,11 +161,11 @@
     if (idx < 0) throw new Error('Usuario ' + id + ' nao encontrado');
     const novaCred = campos.senha || campos.pin;
     if (novaCred) {
-      campos.senhaHash = await CryptoService.sha256(String(novaCred).trim());
+      campos.senhaHash = await _Crypto().sha256(String(novaCred).trim());
       delete campos.senha;
       delete campos.pin;
     }
-    Object.assign(users[idx], campos, { updatedAt: Utils.nowISO() });
+    Object.assign(users[idx], campos, { updatedAt: _Utils().nowISO() });
     _saveUsers(users);
     await _pushFirebase(users);
     return { ...users[idx], senhaHash: undefined, pinHash: undefined };
@@ -177,7 +181,7 @@
 
   // ─── Validacao ───────────────────────────────────────────────────
   async function validarCredenciais(nome, senha) {
-    const hash     = await CryptoService.sha256(String(senha).trim());
+    const hash     = await _Crypto().sha256(String(senha).trim());
     const users    = _loadUsers();
     const nomeNorm = nome.trim().toLowerCase();
     const user     = users.find(u =>
@@ -190,7 +194,7 @@
 
   // Compat legado
   async function validarPin(pin) {
-    const hash  = await CryptoService.sha256(String(pin).trim());
+    const hash  = await _Crypto().sha256(String(pin).trim());
     const users = _loadUsers();
     const user  = users.find(u => u.ativo && (u.senhaHash === hash || u.pinHash === hash));
     if (user) {
@@ -204,7 +208,7 @@
       }
       return { id: user.id, nome: user.nome, role: user.role };
     }
-    const legacyRole = await window.CH.CryptoService.validatePin(pin);
+    const legacyRole = await window.CH._Crypto().validatePin(pin);
     if (legacyRole) {
       return { id: 'legacy', nome: legacyRole === 'admin' ? 'Administrador' : 'Colaborador', role: legacyRole };
     }
@@ -223,7 +227,7 @@
     // 2) Fallback legacy: admin/pdv por PIN embutido
     if (!user) {
       const credencial = senha !== undefined ? senha : nome;
-      const legacyRole = await window.CH.CryptoService.validatePin(credencial);
+      const legacyRole = await window.CH._Crypto().validatePin(credencial);
       if (legacyRole) {
         user = {
           id:   'legacy',
@@ -237,7 +241,7 @@
 
     if (user.id === 'legacy') {
       const credencial = senha !== undefined ? senha : nome;
-      return window.CH.AuthService.login(credencial);
+      return window.CH._Auth().login(credencial);
     }
 
     const session = {
@@ -247,7 +251,7 @@
       loginAt: Date.now(),
     };
     sessionStorage.setItem(window.CH.CONSTANTS.SESSION_KEY, JSON.stringify(session));
-    window.CH.AuthService._session = session;
+    window.CH._Auth()._session = session;
 
     const isFullAdmin = ['adm','admin'].includes(user.role);
     const credFinal   = senha !== undefined ? senha : nome;
@@ -266,7 +270,7 @@
     }, 300);
     setTimeout(() => window.CH.SyncService.pull(), 800);
 
-    window.CH.EventBus.emit('auth:login', { role: user.role });
+    window.CH._Bus().emit('auth:login', { role: user.role });
     return user;
   }
 
@@ -296,7 +300,7 @@
     PERMISSOES_ROLES,
   };
 
-  EventBus.on('firebase:ready', () => { syncUsers().catch(() => {}); });
+  _Bus().on('firebase:ready', () => { syncUsers().catch(() => {}); });
 
   console.info('%c UserService OK (nome+senha | Firestore sync)', 'color:#10b981');
 })();

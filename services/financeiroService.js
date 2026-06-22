@@ -28,7 +28,10 @@
  */
 
 (function () {
-  const { Store, AuthService, Utils, EventBus } = window.CH;
+  function _Store()    { return window.CH.Store; }
+  function _Auth()     { return window.CH.AuthService; }
+  function _Utils()    { return window.CH.Utils; }
+  function _Bus()      { return window.CH.EventBus; }
 
   // ── Registrar lançamento ──────────────────────────────────────────
   function _lancar({ tipo, categoria, descricao, valor, formaPgto = '', referencia = '', extra = {} }) {
@@ -36,7 +39,7 @@
 
     // FIX #4: Idempotência — impede duplo lançamento para a mesma referência+tipo
     if (referencia) {
-      const jaExiste = Store.getFinanceiro().some(
+      const jaExiste = _Store().getFinanceiro().some(
         l => l.referencia === referencia && l.tipo === tipo
       );
       if (jaExiste) {
@@ -46,22 +49,22 @@
     }
 
     const lancamento = {
-      id:         Utils.generateId(),
+      id:         _Utils().generateId(),
       tipo,       // 'receita' | 'despesa' | 'estorno'
       categoria,  // 'venda' | 'compra' | 'avaria' | 'outro'
       descricao,
       valor:      Number(valor),
       formaPgto,
       referencia,
-      operador:   AuthService.getNome(),
-      data:       Utils.nowISO(),
-      dataCurta:  Utils.todayISO(),
-      hora:       Utils.nowTime(),
+      operador:   _Auth().getNome(),
+      data:       _Utils().nowISO(),
+      dataCurta:  _Utils().todayISO(),
+      hora:       _Utils().nowTime(),
       ...extra,
     };
 
-    Store.mutateFinanceiro(fin => { fin.unshift(lancamento); });
-    EventBus.emit('financeiro:lancado', lancamento);
+    _Store().mutateFinanceiro(fin => { fin.unshift(lancamento); });
+    _Bus().emit('financeiro:lancado', lancamento);
     return lancamento;
   }
 
@@ -119,7 +122,7 @@
   // ── Consultas ─────────────────────────────────────────────────────
 
   function getLancamentos({ tipo, categoria, dataDe, dataAte, limit = 500 } = {}) {
-    let fin = Store.getFinanceiro();
+    let fin = _Store().getFinanceiro();
     if (tipo)      fin = fin.filter(l => l.tipo      === tipo);
     if (categoria) fin = fin.filter(l => l.categoria === categoria);
     if (dataDe)    fin = fin.filter(l => l.dataCurta >= dataDe);
@@ -127,7 +130,7 @@
     return fin.slice(0, limit);
   }
 
-  function getCaixaDia(data = Utils.todayISO()) {
+  function getCaixaDia(data = _Utils().todayISO()) {
     const lancamentos = getLancamentos({ dataDe: data, dataAte: data });
 
     const receitas = lancamentos.filter(l => l.tipo === 'receita').reduce((s, l) => s + l.valor, 0);
@@ -190,16 +193,16 @@
       header.map(k => `"${String(l[k] !== undefined ? l[k] : '').replace(/"/g,'""')}"`).join(',')
     );
     const csv = [header.join(','), ...rows].join('\n');
-    Utils.downloadBlob('\uFEFF' + csv, 'text/csv;charset=utf-8', `financeiro_${Utils.todayISO()}.csv`);
+    _Utils().downloadBlob('\uFEFF' + csv, 'text/csv;charset=utf-8', `financeiro_${_Utils().todayISO()}.csv`);
   }
 
   // ── Hooks automáticos ─────────────────────────────────────────────
-  EventBus.on('venda:finalizada',     venda => registrarReceita(venda));
-  EventBus.on('venda:cancelada',      ({ vendaId }) => {
-    const venda = window.CH.Store.getVendas().find(v => v.id === vendaId);
+  _Bus().on('venda:finalizada',     venda => registrarReceita(venda));
+  _Bus().on('venda:cancelada',      ({ vendaId }) => {
+    const venda = window.CH._Store().getVendas().find(v => v.id === vendaId);
     if (venda) registrarEstorno(venda);
   });
-  EventBus.on('estoque:movimentado',  mov => {
+  _Bus().on('estoque:movimentado',  mov => {
     if (mov.tipo === 'entrada') registrarCustoCompra(mov);
   });
 

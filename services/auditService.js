@@ -25,7 +25,10 @@
  */
 
 (function () {
-  const { Store, AuthService, Utils, EventBus } = window.CH;
+  function _Store()    { return window.CH.Store; }
+  function _Auth()     { return window.CH.AuthService; }
+  function _Utils()    { return window.CH.Utils; }
+  function _Bus()      { return window.CH.EventBus; }
 
   // ── Device fingerprint (sem dados pessoais) ──────────────────────
   function _getDevice() {
@@ -48,26 +51,26 @@
     const { antes = null, depois = null, resumo = '', extra = {} } = opts;
 
     const reg = {
-      id:        Utils.generateId(),
+      id:        _Utils().generateId(),
       acao,
       modulo,
-      usuario:   AuthService.getNome(),
-      role:      AuthService.getRole() || 'desconhecido',
+      usuario:   _Auth().getNome(),
+      role:      _Auth().getRole() || 'desconhecido',
       antes:     antes  ? _sanitize(antes)  : null,
       depois:    depois ? _sanitize(depois) : null,
       resumo:    resumo || `${acao} em ${modulo}`,
-      data:      Utils.nowISO(),
-      dataCurta: Utils.todayISO(),
-      hora:      Utils.nowTime(),
+      data:      _Utils().nowISO(),
+      dataCurta: _Utils().todayISO(),
+      hora:      _Utils().nowTime(),
       device:    _getDevice(),
       ...extra,
     };
 
-    Store.mutateAuditoria(audit => {
+    _Store().mutateAuditoria(audit => {
       audit.unshift(reg);
     });
 
-    EventBus.emit('auditoria:registrada', reg);
+    _Bus().emit('auditoria:registrada', reg);
     return reg;
   }
 
@@ -89,7 +92,7 @@
         itens:      venda.itens?.length || 0,
         operador:   venda.operador,
       },
-      resumo: `Venda ${Utils.formatCurrency(venda.total)} — ${venda.formaPgto} — ${venda.itens?.length || 0} item(ns)`,
+      resumo: `Venda ${_Utils().formatCurrency(venda.total)} — ${venda.formaPgto} — ${venda.itens?.length || 0} item(ns)`,
     });
   }
 
@@ -126,13 +129,13 @@
   function auditarFinanceiro(operacao, dados) {
     return registrar(operacao, 'financeiro', {
       depois: dados,
-      resumo: `${operacao} financeiro: ${Utils.formatCurrency(dados?.valor || 0)}`,
+      resumo: `${operacao} financeiro: ${_Utils().formatCurrency(dados?.valor || 0)}`,
     });
   }
 
   // ── Consultas ─────────────────────────────────────────────────────
   function getHistorico({ modulo, acao, usuario, dataDe, dataAte, limit = 200 } = {}) {
-    let audit = Store.getAuditoria();
+    let audit = _Store().getAuditoria();
 
     if (modulo)  audit = audit.filter(r => r.modulo  === modulo);
     if (acao)    audit = audit.filter(r => r.acao    === acao);
@@ -144,20 +147,20 @@
   }
 
   function getHoje() {
-    return getHistorico({ dataDe: Utils.todayISO(), dataAte: Utils.todayISO() });
+    return getHistorico({ dataDe: _Utils().todayISO(), dataAte: _Utils().todayISO() });
   }
 
   function getModulos() {
-    return [...new Set(Store.getAuditoria().map(r => r.modulo))];
+    return [...new Set(_Store().getAuditoria().map(r => r.modulo))];
   }
 
   // Exportar CSV
   function exportarCSV() {
-    const audit = Store.getAuditoria();
+    const audit = _Store().getAuditoria();
     const header = ['data','hora','acao','modulo','usuario','role','resumo','device'];
     const rows   = audit.map(r => header.map(k => `"${String(r[k]||'').replace(/"/g,'""')}"`).join(','));
     const csv    = [header.join(','), ...rows].join('\n');
-    Utils.downloadBlob('\uFEFF' + csv, 'text/csv;charset=utf-8', `auditoria_${Utils.todayISO()}.csv`);
+    _Utils().downloadBlob('\uFEFF' + csv, 'text/csv;charset=utf-8', `auditoria_${_Utils().todayISO()}.csv`);
     return audit.length;
   }
 
@@ -179,7 +182,7 @@
     if (acao === 'editar') {
       const diff = [];
       if (antes?.qtdUn  !== depois?.qtdUn)  diff.push(`qtd: ${antes?.qtdUn}→${depois?.qtdUn}`);
-      if (antes?.precoUn !== depois?.precoUn) diff.push(`preço: ${Utils.formatCurrency(antes?.precoUn)}→${Utils.formatCurrency(depois?.precoUn)}`);
+      if (antes?.precoUn !== depois?.precoUn) diff.push(`preço: ${_Utils().formatCurrency(antes?.precoUn)}→${_Utils().formatCurrency(depois?.precoUn)}`);
       return `Produto editado: ${nome}${diff.length ? ' — ' + diff.join(', ') : ''}`;
     }
     if (acao === 'deletar') return `Produto removido: ${nome}`;
@@ -187,9 +190,9 @@
   }
 
   // ── Hooks automáticos ────────────────────────────────────────────
-  EventBus.on('venda:finalizada',   venda => auditarVenda(venda));
-  EventBus.on('auth:login',         ({ role }) => auditarLogin(role));
-  EventBus.on('estoque:movimentado',mov  => auditarMovimentacao(mov));
+  _Bus().on('venda:finalizada',   venda => auditarVenda(venda));
+  _Bus().on('auth:login',         ({ role }) => auditarLogin(role));
+  _Bus().on('estoque:movimentado',mov  => auditarMovimentacao(mov));
 
   // ── Exportar ─────────────────────────────────────────────────────
   window.CH.AuditService = {

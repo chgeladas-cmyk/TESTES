@@ -25,7 +25,10 @@
  */
 
 (function () {
-  const { Store, AuthService, Utils, EventBus } = window.CH;
+  function _Store()    { return window.CH.Store; }
+  function _Auth()     { return window.CH.AuthService; }
+  function _Utils()    { return window.CH.Utils; }
+  function _Bus()      { return window.CH.EventBus; }
 
   // ── Processa estoque + financeiro em background ────────────────────
   // FIX v3: Não é mais silent fire-and-forget. Falhas são registradas
@@ -43,7 +46,7 @@
         if (!resultado.ok && resultado.rollbackExecutado) {
           // Baixa falhou — registra para reconciliação
           console.error(`[VendasService] Baixa falhou para venda concluída ${venda.id}:`, resultado.erros);
-          EventBus.emit('integrity:venda_sem_baixa', {
+          _Bus().emit('integrity:venda_sem_baixa', {
             vendaId: venda.id,
             status:  'concluida',
             motivo:  resultado.erros?.join('; '),
@@ -58,7 +61,7 @@
           }
         } catch (e) {
           console.error(`[VendasService] Exceção na baixa: venda ${venda.id}:`, e.message);
-          EventBus.emit('integrity:venda_sem_baixa', {
+          _Bus().emit('integrity:venda_sem_baixa', {
             vendaId: venda.id,
             status:  'concluida',
             motivo:  e.message,
@@ -66,7 +69,7 @@
         }
       } else {
         // Fallback local (sem Firebase)
-        Store.mutateEstoque(estoque => {
+        _Store().mutateEstoque(estoque => {
           itens.forEach(item => {
             const prod = estoque.find(p => p.id === item.prodId);
             if (!prod || prod.controlaEstoque === false) return;
@@ -82,7 +85,7 @@
 
     // ── Financeiro ───────────────────────────────────────────────
     // NOTA: não chama registrarReceita diretamente aqui pois
-    // EventBus.on('venda:finalizada') já disparou registrarReceita
+    // _Bus().on('venda:finalizada') já disparou registrarReceita
     // via financeiroService hook. Chamar aqui seria duplo registro.
   }
 
@@ -98,7 +101,7 @@
     if (!itens.length) throw new Error('Carrinho vazio');
 
     const lucro = itens.reduce((s, i) => s + (i.preco - (i.custo || 0)) * i.qtd, 0) - desconto;
-    const role  = AuthService.getRole();
+    const role  = _Auth().getRole();
 
     const _Perm = window.CH.PermissoesService;
     const _rolesLivres = ['adm', 'admin', 'gerente', 'operador', 'pdv', 'entregador'];
@@ -111,15 +114,15 @@
     }
 
     const venda = {
-      id:               Utils.generateId(),
-      dataCurta:        Utils.todayISO(),
-      data:             Utils.today(),
-      hora:             Utils.nowTime(),
-      criadoEm:         Utils.nowISO(),
+      id:               _Utils().generateId(),
+      dataCurta:        _Utils().todayISO(),
+      data:             _Utils().today(),
+      hora:             _Utils().nowTime(),
+      criadoEm:         _Utils().nowISO(),
       itens, total, subtotal, desconto, lucro,
       formaPgto:        formaPgto || 'Dinheiro',
       origem:           'PDV',
-      operador:         AuthService.getNome(),
+      operador:         _Auth().getNome(),
       role,
       status:           requerAprovacao ? 'pendente' : 'concluida',
       _fbSynced:        false,
@@ -130,7 +133,7 @@
     };
 
     // 1. Salva no Store
-    Store.mutateVendas(v => { v.unshift(venda); });
+    _Store().mutateVendas(v => { v.unshift(venda); });
 
     // 2. Sync Firebase
     if (window.CH.SyncQueue) {
@@ -147,7 +150,7 @@
         try { ES.reservarEstoque(venda.id, venda.itens || []); }
         catch(e) { console.warn('[VendasService] Reserva de estoque falhou:', e.message); }
       }
-      EventBus.emit('venda:pendente', venda);
+      _Bus().emit('venda:pendente', venda);
       console.info(`[VendasService] Venda PENDENTE (${role}) → ${venda.id}`);
       return venda;
     }
@@ -158,7 +161,7 @@
       console.error('[VendasService] Erro em _processarEfeitosAsync:', e)
     );
 
-    EventBus.emit('venda:finalizada', venda);
+    _Bus().emit('venda:finalizada', venda);
     return venda;
   }
 
@@ -166,7 +169,7 @@
   //  CANCELAR VENDA
   // ══════════════════════════════════════════════════════════════════
   async function cancelarVenda(vendaId) {
-    const venda = Store.getVendas().find(v => v.id === vendaId);
+    const venda = _Store().getVendas().find(v => v.id === vendaId);
     if (!venda)                       throw new Error(`Venda ${vendaId} não encontrada`);
     if (venda.status === 'cancelada') throw new Error('Venda já cancelada');
     if (venda.status === 'pendente')  throw new Error('Use "rejeitar" no painel de aprovação');
@@ -177,28 +180,28 @@
       if (EstoqueService) await EstoqueService.cancelarVenda(vendaId, venda.itens || []);
     }
 
-    Store.mutateVendas(vendas => {
+    _Store().mutateVendas(vendas => {
       const v = vendas.find(v => v.id === vendaId);
       if (v) {
         v.status       = 'cancelada';
-        v.canceladaEm  = Utils.nowISO();
-        v.canceladaPor = AuthService.getNome();
+        v.canceladaEm  = _Utils().nowISO();
+        v.canceladaPor = _Auth().getNome();
       }
     });
 
     // FIX #1: Duplo estorno removido.
-    // O estorno era chamado aqui (direto) E via EventBus.on('venda:cancelada').
+    // O estorno era chamado aqui (direto) E via _Bus().on('venda:cancelada').
     // Agora apenas o EventBus dispara registrarEstorno (ver financeiroService.js).
 
     // Desbloqueia venda se estava bloqueada por integridade
     window.CH.IntegrityService?.desbloquearVenda?.(vendaId);
 
     if (window.CH.SyncQueue) {
-      const v = Store.getVendas().find(v => v.id === vendaId);
+      const v = _Store().getVendas().find(v => v.id === vendaId);
       if (v) window.CH.SyncQueue.enqueue('atualizar', 'vendas', [v]);
     }
 
-    EventBus.emit('venda:cancelada', { vendaId, operador: AuthService.getNome() });
+    _Bus().emit('venda:cancelada', { vendaId, operador: _Auth().getNome() });
     return true;
   }
 
@@ -206,11 +209,11 @@
   //  CONSULTAS
   // ══════════════════════════════════════════════════════════════════
   function getVendasPeriodo(dataDe, dataAte) {
-    return Store.getVendas().filter(v => v.dataCurta >= dataDe && v.dataCurta <= dataAte);
+    return _Store().getVendas().filter(v => v.dataCurta >= dataDe && v.dataCurta <= dataAte);
   }
 
   function getVendasHoje() {
-    return getVendasPeriodo(Utils.todayISO(), Utils.todayISO());
+    return getVendasPeriodo(_Utils().todayISO(), _Utils().todayISO());
   }
 
   function getResumoHoje() {
@@ -237,7 +240,7 @@
   function getResumoSemana() {
     const hoje = new Date(), dom = new Date(hoje);
     dom.setDate(hoje.getDate() - hoje.getDay());
-    const vendas = getVendasPeriodo(_localDateISO(dom), Utils.todayISO()) // FIX #5b
+    const vendas = getVendasPeriodo(_localDateISO(dom), _Utils().todayISO()) // FIX #5b
       .filter(v => ['concluida', 'validada'].includes(v.status));
     return {
       quantidade: vendas.length,
@@ -249,7 +252,7 @@
   function getProdutosMaisVendidos(limite = 10, periodo = 30) {
     const dm = new Date();
     dm.setDate(dm.getDate() - periodo);
-    const vendas = getVendasPeriodo(_localDateISO(dm), Utils.todayISO()) // FIX #5b
+    const vendas = getVendasPeriodo(_localDateISO(dm), _Utils().todayISO()) // FIX #5b
       .filter(v => ['concluida', 'validada'].includes(v.status));
     const mapa = {};
     vendas.forEach(venda => {

@@ -16,12 +16,15 @@
  */
 
 (function () {
-  const { Store, AuthService, Utils, EventBus } = window.CH;
+  function _Store()    { return window.CH.Store; }
+  function _Auth()     { return window.CH.AuthService; }
+  function _Utils()    { return window.CH.Utils; }
+  function _Bus()      { return window.CH.EventBus; }
 
   let _processandoLote = false;
 
   function _perm(modulo) {
-    const role = AuthService.getRole();
+    const role = _Auth().getRole();
     if (['adm', 'admin'].includes(role)) return true;
     return window.CH.PermissoesService
       ? window.CH.PermissoesService.temAcesso(role, modulo)
@@ -30,13 +33,13 @@
 
   function _sync(vendaId) {
     if (!window.CH.SyncQueue) return;
-    const v = Store.getVendas().find(v => v.id === vendaId);
+    const v = _Store().getVendas().find(v => v.id === vendaId);
     if (v) window.CH.SyncQueue.enqueue('atualizar', 'vendas', [v]);
   }
 
   function _syncLote(vendaIds) {
     if (!window.CH.SyncQueue || !vendaIds.length) return;
-    const todas = Store.getVendas();
+    const todas = _Store().getVendas();
     const lote  = vendaIds.map(id => todas.find(v => v.id === id)).filter(Boolean);
     if (lote.length) window.CH.SyncQueue.enqueue('atualizar', 'vendas', lote);
   }
@@ -44,7 +47,7 @@
   // Marca a venda como erro_validacao, mantendo o estado anterior preservado em _statusAnterior
   // para que "Tentar novamente" e "Resolver manualmente" saibam pra onde reverter/avançar.
   function _marcarErroValidacao(vendaId, motivo, agora, operador) {
-    Store.mutateVendas(list => {
+    _Store().mutateVendas(list => {
       const v = list.find(v => v.id === vendaId);
       if (v && v.status !== 'erro_validacao') {
         v._statusAnterior   = v.status; // sempre 'aprovada' neste fluxo, mas guarda por segurança
@@ -55,32 +58,32 @@
       }
     });
     _sync(vendaId);
-    EventBus.emit('venda:erro_validacao', { vendaId, motivo, operador });
+    _Bus().emit('venda:erro_validacao', { vendaId, motivo, operador });
   }
 
   // ── Queries ───────────────────────────────────────────────────────
   function getPendentes() {
-    return Store.getVendas()
+    return _Store().getVendas()
       .filter(v => v.status === 'pendente')
       .sort((a, b) => (b.criadoEm || '').localeCompare(a.criadoEm || ''));
   }
   function getAprovadas() {
-    return Store.getVendas()
+    return _Store().getVendas()
       .filter(v => v.status === 'aprovada')
       .sort((a, b) => (b.aprovadaEm || '').localeCompare(a.aprovadaEm || ''));
   }
   function getRejeitadas() {
-    return Store.getVendas()
+    return _Store().getVendas()
       .filter(v => v.status === 'rejeitada')
       .sort((a, b) => (b.rejeitadaEm || '').localeCompare(a.rejeitadaEm || ''));
   }
   function getValidadas() {
-    return Store.getVendas()
+    return _Store().getVendas()
       .filter(v => v.status === 'validada')
       .sort((a, b) => (b.validadaEm || '').localeCompare(a.validadaEm || ''));
   }
   function getErrosValidacao() {
-    return Store.getVendas()
+    return _Store().getVendas()
       .filter(v => v.status === 'erro_validacao')
       .sort((a, b) => (b.erroValidacaoEm || '').localeCompare(a.erroValidacaoEm || ''));
   }
@@ -93,7 +96,7 @@
     if (!_perm('aprovacao_controle'))
       throw new Error('Sem permissão para aprovar vendas');
 
-    const venda = Store.getVendas().find(v => v.id === vendaId);
+    const venda = _Store().getVendas().find(v => v.id === vendaId);
     if (!venda) throw new Error('Venda não encontrada');
     if (venda.status !== 'pendente')
       throw new Error(`Venda está "${venda.status}", esperado "pendente"`);
@@ -122,17 +125,17 @@
       }
     }
 
-    Store.mutateVendas(list => {
+    _Store().mutateVendas(list => {
       const v = list.find(v => v.id === vendaId);
       if (v) {
         v.status      = 'aprovada';
-        v.aprovadaEm  = Utils.nowISO();
-        v.aprovadaPor = AuthService.getNome();
+        v.aprovadaEm  = _Utils().nowISO();
+        v.aprovadaPor = _Auth().getNome();
       }
     });
 
     _sync(vendaId);
-    EventBus.emit('venda:aprovada', { vendaId, operador: AuthService.getNome() });
+    _Bus().emit('venda:aprovada', { vendaId, operador: _Auth().getNome() });
     return true;
   }
 
@@ -142,17 +145,17 @@
     const podeV = _perm('aprovacao_validacao');
     if (!podeC && !podeV) throw new Error('Sem permissão para rejeitar vendas');
 
-    const venda = Store.getVendas().find(v => v.id === vendaId);
+    const venda = _Store().getVendas().find(v => v.id === vendaId);
     if (!venda) throw new Error('Venda não encontrada');
     if (!['pendente', 'aprovada', 'erro_validacao'].includes(venda.status))
       throw new Error(`Venda "${venda.status}" não pode ser rejeitada`);
 
-    Store.mutateVendas(list => {
+    _Store().mutateVendas(list => {
       const v = list.find(v => v.id === vendaId);
       if (v) {
         v.status         = 'rejeitada';
-        v.rejeitadaEm    = Utils.nowISO();
-        v.rejeitadaPor   = AuthService.getNome();
+        v.rejeitadaEm    = _Utils().nowISO();
+        v.rejeitadaPor   = _Auth().getNome();
         v.motivoRejeicao = motivo;
       }
     });
@@ -160,17 +163,17 @@
     window.CH.EstoqueService?.liberarReserva?.(vendaId);
 
     if (venda._fiado && venda._fiadoClienteId) {
-      EventBus.emit('fiado:lancamento:rejeitado', {
+      _Bus().emit('fiado:lancamento:rejeitado', {
         vendaId,
         clienteId: venda._fiadoClienteId,
         valor:     venda.total,
         motivo,
-        operador:  AuthService.getNome(),
+        operador:  _Auth().getNome(),
       });
     }
 
     _sync(vendaId);
-    EventBus.emit('venda:rejeitada', { vendaId, motivo, operador: AuthService.getNome() });
+    _Bus().emit('venda:rejeitada', { vendaId, motivo, operador: _Auth().getNome() });
     return true;
   }
 
@@ -179,7 +182,7 @@
     if (!_perm('aprovacao_validacao'))
       throw new Error('Sem permissão para validar vendas');
 
-    const venda = Store.getVendas().find(v => v.id === vendaId);
+    const venda = _Store().getVendas().find(v => v.id === vendaId);
     if (!venda) throw new Error('Venda não encontrada');
     if (venda.status !== 'aprovada')
       throw new Error(`Venda está "${venda.status}", esperado "aprovada"`);
@@ -225,7 +228,7 @@
         }
       } else {
         // Fallback local direto
-        Store.mutateEstoque(estoque => {
+        _Store().mutateEstoque(estoque => {
           (venda.itens || []).forEach(item => {
             const prod = estoque.find(p => p.id === item.prodId);
             if (!prod || prod.controlaEstoque === false) return;
@@ -241,12 +244,12 @@
     }
 
     // ── PASSO 4: MUDA STATUS APÓS CONFIRMAÇÃO DA BAIXA ────────────
-    Store.mutateVendas(list => {
+    _Store().mutateVendas(list => {
       const v = list.find(v => v.id === vendaId);
       if (v) {
         v.status      = 'validada';
-        v.validadaEm  = Utils.nowISO();
-        v.validadaPor = AuthService.getNome();
+        v.validadaEm  = _Utils().nowISO();
+        v.validadaPor = _Auth().getNome();
         v._baixaOk    = baixaOk;
         v._baixaErros = baixaErros.length > 0 ? baixaErros : undefined;
       }
@@ -255,33 +258,33 @@
     if (!_processandoLote) _sync(vendaId);
 
     // ── PASSO 5: Efetiva débito fiado ─────────────────────────────
-    const vendaAtualizada = Store.getVendas().find(v => v.id === vendaId);
+    const vendaAtualizada = _Store().getVendas().find(v => v.id === vendaId);
     if (vendaAtualizada?._fiado && vendaAtualizada._fiadoClienteId) {
-      Store.mutateFiado(fiado => {
+      _Store().mutateFiado(fiado => {
         const cx = fiado.find(x => x.id === vendaAtualizada._fiadoClienteId);
         if (!cx) return;
         cx.saldo = (cx.saldo || 0) + (vendaAtualizada.total || 0);
         if (!Array.isArray(cx.movimentacoes)) cx.movimentacoes = [];
         cx.movimentacoes.unshift({
-          id:          Utils.generateId(),
+          id:          _Utils().generateId(),
           tipo:        'fiado',
           descricao:   vendaAtualizada._fiadoDesc || vendaAtualizada.itens?.[0]?.nome || 'Compra fiado',
           valor:       vendaAtualizada.total || 0,
           vendaId:     vendaAtualizada.id,
-          validadoPor: AuthService.getNome(),
-          criadoEm:    Utils.nowISO(),
+          validadoPor: _Auth().getNome(),
+          criadoEm:    _Utils().nowISO(),
         });
         if (cx.limite > 0 && cx.saldo >= cx.limite) cx.bloqueado = true;
       });
       if (window.CH.SyncQueue)
-        window.CH.SyncQueue.enqueue('salvar', 'fiado', Store.getFiado());
+        window.CH.SyncQueue.enqueue('salvar', 'fiado', _Store().getFiado());
     }
 
     // ── PASSO 6: Eventos ──────────────────────────────────────────
     if (!_processandoLote) {
-      const vendaFinal = Store.getVendas().find(v => v.id === vendaId) || venda;
-      EventBus.emit('venda:finalizada', vendaFinal);
-      EventBus.emit('venda:validada', vendaFinal);
+      const vendaFinal = _Store().getVendas().find(v => v.id === vendaId) || venda;
+      _Bus().emit('venda:finalizada', vendaFinal);
+      _Bus().emit('venda:validada', vendaFinal);
     }
 
     console.info(`[AprovacaoService] ✓ Venda ${vendaId} validada (baixa: ${baixaOk ? 'OK' : 'PARCIAL'})`);
@@ -295,12 +298,12 @@
     if (!_perm('aprovacao_validacao'))
       throw new Error('Sem permissão para validar vendas');
 
-    const venda = Store.getVendas().find(v => v.id === vendaId);
+    const venda = _Store().getVendas().find(v => v.id === vendaId);
     if (!venda) throw new Error('Venda não encontrada');
     if (venda.status !== 'erro_validacao')
       throw new Error(`Venda está "${venda.status}", esperado "erro_validacao"`);
 
-    Store.mutateVendas(list => {
+    _Store().mutateVendas(list => {
       const v = list.find(v => v.id === vendaId);
       if (v) {
         v.status = 'aprovada';
@@ -324,15 +327,15 @@
     if (!justificativa.trim())
       throw new Error('Justificativa obrigatória para resolução manual');
 
-    const venda = Store.getVendas().find(v => v.id === vendaId);
+    const venda = _Store().getVendas().find(v => v.id === vendaId);
     if (!venda) throw new Error('Venda não encontrada');
     if (venda.status !== 'erro_validacao')
       throw new Error(`Venda está "${venda.status}", esperado "erro_validacao"`);
 
-    const agora    = Utils.nowISO();
-    const operador = AuthService.getNome();
+    const agora    = _Utils().nowISO();
+    const operador = _Auth().getNome();
 
-    Store.mutateVendas(list => {
+    _Store().mutateVendas(list => {
       const v = list.find(v => v.id === vendaId);
       if (v) {
         v.status              = 'validada';
@@ -359,25 +362,25 @@
     if (FS) FS.registrarReceita(venda);
 
     if (venda._fiado && venda._fiadoClienteId) {
-      Store.mutateFiado(fiado => {
+      _Store().mutateFiado(fiado => {
         const cx = fiado.find(x => x.id === venda._fiadoClienteId);
         if (!cx) return;
         cx.saldo = (cx.saldo || 0) + (venda.total || 0);
         if (!Array.isArray(cx.movimentacoes)) cx.movimentacoes = [];
         cx.movimentacoes.unshift({
-          id: Utils.generateId(), tipo: 'fiado',
+          id: _Utils().generateId(), tipo: 'fiado',
           descricao: venda._fiadoDesc || venda.itens?.[0]?.nome || 'Compra fiado',
           valor: venda.total || 0, vendaId: venda.id,
           validadoPor: operador, criadoEm: agora,
         });
         if (cx.limite > 0 && cx.saldo >= cx.limite) cx.bloqueado = true;
       });
-      if (window.CH.SyncQueue) window.CH.SyncQueue.enqueue('salvar', 'fiado', Store.getFiado());
+      if (window.CH.SyncQueue) window.CH.SyncQueue.enqueue('salvar', 'fiado', _Store().getFiado());
     }
 
-    const vendaFinal = Store.getVendas().find(v => v.id === vendaId) || venda;
-    EventBus.emit('venda:finalizada', vendaFinal);
-    EventBus.emit('venda:validada', vendaFinal);
+    const vendaFinal = _Store().getVendas().find(v => v.id === vendaId) || venda;
+    _Bus().emit('venda:finalizada', vendaFinal);
+    _Bus().emit('venda:validada', vendaFinal);
 
     console.info(`[AprovacaoService] ⚠ Venda ${vendaId} resolvida manualmente (sem baixa automática)`);
     return true;
@@ -391,14 +394,14 @@
     const pendentes = getPendentes();
     if (!pendentes.length) return { total: 0, erros: [] };
 
-    const agora    = Utils.nowISO();
-    const operador = AuthService.getNome();
+    const agora    = _Utils().nowISO();
+    const operador = _Auth().getNome();
     const ids      = pendentes.map(v => v.id);
     const erros    = [];
 
     _processandoLote = true;
     try {
-      Store.mutateVendas(list => {
+      _Store().mutateVendas(list => {
         ids.forEach(id => {
           const v = list.find(v => v.id === id);
           if (v && v.status === 'pendente') {
@@ -410,7 +413,7 @@
       });
 
       _syncLote(ids);
-      EventBus.emit('venda:aprovada:lote', { total: ids.length, operador });
+      _Bus().emit('venda:aprovada:lote', { total: ids.length, operador });
 
     } catch (e) {
       erros.push({ erro: e.message });
@@ -429,8 +432,8 @@
     const aprovadas = getAprovadas();
     if (!aprovadas.length) return { total: 0, sucesso: 0, erros: [] };
 
-    const agora    = Utils.nowISO();
-    const operador = AuthService.getNome();
+    const agora    = _Utils().nowISO();
+    const operador = _Auth().getNome();
     const erros    = [];
     const validadas = [];
     const ES        = window.CH.EstoqueService;
@@ -482,7 +485,7 @@
                 continue;
               }
             } else {
-              Store.mutateEstoque(estoque => {
+              _Store().mutateEstoque(estoque => {
                 (venda.itens || []).forEach(item => {
                   const prod = estoque.find(p => p.id === item.prodId);
                   if (!prod || prod.controlaEstoque === false) return;
@@ -498,7 +501,7 @@
           }
 
           // PASSO 4: Muda status
-          Store.mutateVendas(list => {
+          _Store().mutateVendas(list => {
             const v = list.find(v => v.id === venda.id);
             if (v && v.status === 'aprovada') {
               v.status      = 'validada';
@@ -517,13 +520,13 @@
 
           // PASSO 6: Fiado
           if (venda._fiado && venda._fiadoClienteId) {
-            Store.mutateFiado(fiado => {
+            _Store().mutateFiado(fiado => {
               const cx = fiado.find(x => x.id === venda._fiadoClienteId);
               if (!cx) return;
               cx.saldo = (cx.saldo || 0) + (venda.total || 0);
               if (!Array.isArray(cx.movimentacoes)) cx.movimentacoes = [];
               cx.movimentacoes.unshift({
-                id:          Utils.generateId(),
+                id:          _Utils().generateId(),
                 tipo:        'fiado',
                 descricao:   venda._fiadoDesc || venda.itens?.[0]?.nome || 'Compra fiado',
                 valor:       venda.total || 0,
@@ -547,12 +550,12 @@
 
       const temFiado = aprovadas.some(v => v._fiado && v._fiadoClienteId);
       if (temFiado && window.CH.SyncQueue)
-        window.CH.SyncQueue.enqueue('salvar', 'fiado', Store.getFiado());
+        window.CH.SyncQueue.enqueue('salvar', 'fiado', _Store().getFiado());
 
       if (validadas.length > 0) {
-        EventBus.emit('venda:validada:lote', { total: validadas.length, operador, erros: erros.length });
-        const vendasValidadas = Store.getVendas().filter(v => validadas.includes(v.id));
-        EventBus.emit('venda:finalizada:lote', vendasValidadas);
+        _Bus().emit('venda:validada:lote', { total: validadas.length, operador, erros: erros.length });
+        const vendasValidadas = _Store().getVendas().filter(v => validadas.includes(v.id));
+        _Bus().emit('venda:finalizada:lote', vendasValidadas);
       }
 
     } finally {
