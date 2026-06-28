@@ -846,6 +846,8 @@ body.is-admin .valid-only { display: block; }
   <!-- integrityService.js removido -->
   <script src="./services/vendasService.js"></script>
   <script src="./services/aprovacaoService.js"></script>
+  <!-- VendaMediator — carrega APÓS todos os services. Orquestra Venda→Estoque→Financeiro. -->
+  <script src="./services/vendaMediator.js"></script>
 
 <script>
 'use strict';
