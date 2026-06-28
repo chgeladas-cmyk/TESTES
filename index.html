@@ -848,6 +848,8 @@ body.is-admin .valid-only { display: block; }
   <script src="./services/aprovacaoService.js"></script>
   <!-- VendaMediator — carrega APÓS todos os services. Orquestra Venda→Estoque→Financeiro. -->
   <script src="./services/vendaMediator.js"></script>
+  <!-- TransactionManager — carrega APÓS VendaMediator. Steps + compensação + histórico. -->
+  <script src="./application/TransactionManager.js"></script>
 
 <script>
 'use strict';
