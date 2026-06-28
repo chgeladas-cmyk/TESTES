@@ -32,52 +32,44 @@
   function _Auth()     { return window.CH.AuthService; }
   function _Utils()    { return window.CH.Utils; }
   function _Bus()      { return window.CH.EventBus; }
+  function _Repo()     { return window.CH.FinanceiroRepository; }
 
   // ── Registrar lançamento ──────────────────────────────────────────
   function _lancar({ tipo, categoria, descricao, valor, formaPgto = '', referencia = '', extra = {} }) {
     if (!valor || valor <= 0) return null;
 
-    // FIX #4: Idempotência — impede duplo lançamento para a mesma referência+tipo
-    if (referencia) {
-      const jaExiste = _Store().getFinanceiro().some(
-        l => l.referencia === referencia && l.tipo === tipo
-      );
-      if (jaExiste) {
-        console.info(`[Financeiro] Lançamento ignorado — referencia "${referencia}" tipo "${tipo}" já existe`);
-        return null;
-      }
+    // Idempotência delegada ao FinanceiroRepository
+    // (cheque antecipado aqui para retornar null antes de criar o objeto)
+    if (referencia && _Repo()?.buscarPorReferencia(referencia, tipo)) {
+      console.info(`[Financeiro] Lançamento ignorado — referencia "${referencia}" tipo "${tipo}" já existe`);
+      return null;
     }
 
     const lancamento = {
-      id:         _Utils().generateId(),
-      tipo,       // 'receita' | 'despesa' | 'estorno'
-      categoria,  // 'venda' | 'compra' | 'avaria' | 'outro'
+      id:            _Utils().generateId(),
+      tipo,
+      categoria,
       descricao,
-      valor:      Number(valor),
+      valor:         Number(valor),
       formaPgto,
       referencia,
-      operador:   _Auth().getNome(),
-      data:       _Utils().nowISO(),
-      dataCurta:  _Utils().todayISO(),
-      hora:       _Utils().nowTime(),
+      operador:      _Auth().getNome(),
+      data:          _Utils().nowISO(),
+      dataCurta:     _Utils().todayISO(),
+      hora:          _Utils().nowTime(),
       correlationId: extra.correlationId || null,
       ...extra,
     };
 
-    _Store().mutateFinanceiro(fin => { fin.unshift(lancamento); });
-
-    // Auditoria forense — registra saldo do dia antes e o lançamento criado
+    // Auditoria forense — saldo ANTES do lançamento
     try {
-      const saldoAntes = _Store().getFinanceiro()
-        .filter(l => l.dataCurta === lancamento.dataCurta && l.id !== lancamento.id)
-        .reduce((s, l) => {
-          if (l.tipo === 'receita') return s + l.valor;
-          if (l.tipo === 'despesa') return s - l.valor;
-          if (l.tipo === 'estorno') return s - l.valor;
-          return s;
-        }, 0);
+      const saldoAntes = _Repo()?.saldoHoje() ?? 0;
       window.CH.AuditService?.auditarFinanceiro(lancamento, saldoAntes);
     } catch (_) {}
+
+    // FinanceiroRepository persiste no Store local e enfileira sync
+    const salvo = _Repo()?.salvarLancamento(lancamento);
+    if (!salvo) return null; // rejeitado pelo repository (duplicata ou valor inválido)
 
     _Bus().emit('financeiro:lancado', lancamento);
     return lancamento;
@@ -215,15 +207,12 @@
     _Utils().downloadBlob('\uFEFF' + csv, 'text/csv;charset=utf-8', `financeiro_${_Utils().todayISO()}.csv`);
   }
 
-  // ── Hooks automáticos ─────────────────────────────────────────────
-  _Bus().on('venda:finalizada',     venda => registrarReceita(venda));
-  _Bus().on('venda:cancelada',      ({ vendaId }) => {
-    const venda = window.CH._Store().getVendas().find(v => v.id === vendaId);
-    if (venda) registrarEstorno(venda);
-  });
-  _Bus().on('estoque:movimentado',  mov => {
-    if (mov.tipo === 'entrada') registrarCustoCompra(mov);
-  });
+  // ── Hooks automáticos removidos ───────────────────────────────────
+  // Antes: financeiroService se auto-registrava em 'venda:finalizada',
+  //        'venda:cancelada' e 'estoque:movimentado'.
+  // Depois: VendaMediator centraliza a orquestração — ele chama
+  //         registrarReceita, registrarEstorno e registrarCustoCompra
+  //         nos momentos corretos, sem acoplamento implícito.
 
   // ── Exportar ─────────────────────────────────────────────────────
   window.CH.FinanceiroService = {

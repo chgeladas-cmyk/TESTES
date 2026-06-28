@@ -30,67 +30,6 @@
   function _Utils()    { return window.CH.Utils; }
   function _Bus()      { return window.CH.EventBus; }
 
-  // ── Processa estoque + financeiro em background ────────────────────
-  // FIX v3: Não é mais silent fire-and-forget. Falhas são registradas
-  // como divergências críticas e disparam reconciliação automática.
-  async function _processarEfeitosAsync(venda) {
-    const itens = venda.itens || [];
-    const IS    = window.CH.IntegrityService;
-    const ES    = window.CH.EstoqueService;
-
-    console.info(`[VendasService] correlationId=${venda.correlationId} vendaId=${venda.id} — iniciando efeitos`);
-
-    // ── Estoque ──────────────────────────────────────────────────
-    if (ES) {
-      if (IS?.confirmarBaixaComRollback) {
-        // Caminho preferencial: com rastreabilidade e detecção de falha
-        const resultado = await IS.confirmarBaixaComRollback(venda, null);
-        if (!resultado.ok && resultado.rollbackExecutado) {
-          // Baixa falhou — registra para reconciliação
-          console.error(`[VendasService] Baixa falhou para venda concluída ${venda.id}:`, resultado.erros);
-          _Bus().emit('integrity:venda_sem_baixa', {
-            vendaId: venda.id,
-            status:  'concluida',
-            motivo:  resultado.erros?.join('; '),
-          });
-        }
-      } else if (ES.baixarEstoqueVendaLote) {
-        // Caminho alternativo: baixa em lote sem IntegrityService
-        try {
-          const resultado = await ES.baixarEstoqueVendaLote(venda);
-          if (!resultado.ok && resultado.itensProcessados === 0) {
-            console.error(`[VendasService] baixarEstoqueVendaLote falhou: venda ${venda.id}`);
-          }
-        } catch (e) {
-          console.error(`[VendasService] Exceção na baixa: venda ${venda.id}:`, e.message);
-          _Bus().emit('integrity:venda_sem_baixa', {
-            vendaId: venda.id,
-            status:  'concluida',
-            motivo:  e.message,
-          });
-        }
-      } else {
-        // Fallback local (sem Firebase)
-        _Store().mutateEstoque(estoque => {
-          itens.forEach(item => {
-            const prod = estoque.find(p => p.id === item.prodId);
-            if (!prod || prod.controlaEstoque === false) return;
-            const qtdDesc = item.label === 'UNID'
-              ? item.qtd
-              : item.qtd * (prod.packs?.find(pk => pk.label === item.label)?.qtd || 1);
-            prod.qtdUn = Math.max(0, (prod.qtdUn || 0) - qtdDesc);
-            prod.estoqueAtual = prod.qtdUn;
-          });
-        });
-      }
-    }
-
-    // ── Financeiro ───────────────────────────────────────────────
-    // NOTA: não chama registrarReceita diretamente aqui pois
-    // _Bus().on('venda:finalizada') já disparou registrarReceita
-    // via financeiroService hook. Chamar aqui seria duplo registro.
-  }
-
   // ══════════════════════════════════════════════════════════════════
   //  FINALIZAR VENDA — SÍNCRONO (não async!)
   // ══════════════════════════════════════════════════════════════════
@@ -152,37 +91,16 @@
     if (cart.clear) cart.clear();
 
     // ── REQUER APROVAÇÃO: para aqui, sem estoque/financeiro ──────
+    // VendaMediator ouvirá 'venda:pendente' e chamará reservarEstoque.
     if (requerAprovacao) {
-      const ES = window.CH.EstoqueService;
-      if (ES?.reservarEstoque) {
-        try {
-          const reserva = await ES.reservarEstoque(venda.id, venda.itens || []);
-          if (reserva && !reserva.ok) {
-            // Reserva parcial ou bloqueada — remove a venda do Store e lança erro
-            _Store().mutateVendas(vs => {
-              const idx = vs.findIndex(v => v.id === venda.id);
-              if (idx >= 0) vs.splice(idx, 1);
-            });
-            throw new Error(
-              `Estoque insuficiente para reserva:\n${reserva.erros.join('\n')}`
-            );
-          }
-        } catch(e) {
-          if (e.message.startsWith('Estoque insuficiente')) throw e;
-          console.warn('[VendasService] Reserva de estoque falhou:', e.message);
-        }
-      }
       _Bus().emit('venda:pendente', venda);
       console.info(`[VendasService] Venda PENDENTE (${role}) → ${venda.id}`);
       return venda;
     }
 
-    // ── FLUXO DIRETO: dispara efeitos em background ───────────────
-    // Erros são rastreados — não são silenciosos
-    _processarEfeitosAsync(venda).catch(e =>
-      console.error('[VendasService] Erro em _processarEfeitosAsync:', e)
-    );
-
+    // ── FLUXO DIRETO: emite evento — VendaMediator cuida do resto ──
+    // VendaMediator ouvirá 'venda:finalizada' e executará:
+    //   baixa de estoque → receita financeira
     _Bus().emit('venda:finalizada', venda);
     return venda;
   }
@@ -198,8 +116,7 @@
     if (venda.status === 'rejeitada') throw new Error('Venda já foi rejeitada');
 
     if (['concluida', 'validada'].includes(venda.status)) {
-      const EstoqueService = window.CH.EstoqueService;
-      if (EstoqueService) await EstoqueService.cancelarVenda(vendaId, venda.itens || []);
+      // VendaMediator ouvirá 'venda:cancelada' e chamará EstoqueService.cancelarVenda
     }
 
     _Store().mutateVendas(vendas => {
@@ -214,19 +131,14 @@
     window.CH.AuditService?.auditarCancelamento(venda,
       venda.motivoCancelamento || 'Cancelamento pelo operador');
 
-    // FIX #1: Duplo estorno removido.
-    // O estorno era chamado aqui (direto) E via _Bus().on('venda:cancelada').
-    // Agora apenas o EventBus dispara registrarEstorno (ver financeiroService.js).
-
-    // Desbloqueia venda se estava bloqueada por integridade
     window.CH.IntegrityService?.desbloquearVenda?.(vendaId);
 
-    if (window.CH.SyncQueue) {
-      const v = _Store().getVendas().find(v => v.id === vendaId);
-      if (v) window.CH.SyncQueue.enqueue('atualizar', 'vendas', [v]);
-    }
+    // VendaRepository sincroniza com Firestore
+    const v = _Store().getVendas().find(v => v.id === vendaId);
+    if (v) window.CH.VendaRepository?.atualizar(v);
 
-    _Bus().emit('venda:cancelada', { vendaId, operador: _Auth().getNome() });
+    // Emite evento — VendaMediator executa: estorno de estoque + estorno financeiro
+    _Bus().emit('venda:cancelada', { vendaId, venda, operador: _Auth().getNome() });
     return true;
   }
 

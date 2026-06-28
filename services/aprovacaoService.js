@@ -31,17 +31,17 @@
       : false;
   }
 
+  // _sync e _syncLote delegam para VendaRepository — sem acesso direto ao SyncQueue
   function _sync(vendaId) {
-    if (!window.CH.SyncQueue) return;
     const v = _Store().getVendas().find(v => v.id === vendaId);
-    if (v) window.CH.SyncQueue.enqueue('atualizar', 'vendas', [v]);
+    if (v) window.CH.VendaRepository?.atualizar(v);
   }
 
   function _syncLote(vendaIds) {
-    if (!window.CH.SyncQueue || !vendaIds.length) return;
+    if (!vendaIds.length) return;
     const todas = _Store().getVendas();
     const lote  = vendaIds.map(id => todas.find(v => v.id === id)).filter(Boolean);
-    if (lote.length) window.CH.SyncQueue.enqueue('atualizar', 'vendas', lote);
+    lote.forEach(v => window.CH.VendaRepository?.atualizar(v));
   }
 
   // Marca a venda como erro_validacao, mantendo o estado anterior preservado em _statusAnterior
@@ -203,7 +203,9 @@
         if (!prod || prod.controlaEstoque === false) continue;
         const pack  = prod.packs?.find(pk => pk.label === item.label || (pk.qtd + 'x') === item.label);
         const qtdUn = item.label === 'UNID' ? item.qtd : item.qtd * (pack?.qtd || 1);
-        const disponivel = prod.estoqueAtual ?? prod.qtdUn ?? 0;
+        const disponivel = ES.getEstoqueDisponivel
+          ? ES.getEstoqueDisponivel(item.prodId)
+          : (prod.estoqueAtual ?? prod.qtdUn ?? 0);
         if (disponivel < qtdUn)
           errosEstoque.push(`"${prod.nome}": disponível ${disponivel}, necessário ${qtdUn}`);
       }
@@ -212,6 +214,9 @@
     }
 
     // ── PASSO 2: Libera reserva ───────────────────────────────────
+    // VendaMediator também ouve 'venda:validada' e libera reserva.
+    // Fazemos aqui também (antes da baixa) para liberar imediatamente,
+    // pois a baixa substituirá a reserva pelo valor real.
     if (!venda._cambio) await ES?.liberarReserva?.(venda.id);
 
     // ── PASSO 3: BAIXA DE ESTOQUE — ANTES DE MUDAR STATUS ─────────
@@ -292,10 +297,12 @@
     }
 
     // ── PASSO 6: Eventos ──────────────────────────────────────────
+    // VendaMediator ouvirá 'venda:validada' e executará:
+    //   liberarReserva (se ainda não liberada) + registrarReceita financeiro
     if (!_processandoLote) {
       const vendaFinal = _Store().getVendas().find(v => v.id === vendaId) || venda;
-      _Bus().emit('venda:finalizada', vendaFinal);
       _Bus().emit('venda:validada', vendaFinal);
+      _Bus().emit('venda:finalizada', vendaFinal); // garante hook de auditoria
     }
 
     console.info(`[AprovacaoService] ✓ Venda ${vendaId} validada (baixa: ${baixaOk ? 'OK' : 'PARCIAL'})`);
@@ -368,9 +375,8 @@
 
     _sync(vendaId);
 
-    // Financeiro e fiado seguem o mesmo caminho de uma validação normal
-    const FS = window.CH.FinanceiroService;
-    if (FS) FS.registrarReceita(venda);
+    // VendaMediator ouvirá 'venda:validada' e registrará a receita financeira
+    _Bus().emit('venda:validada', venda);
 
     if (venda._fiado && venda._fiadoClienteId) {
       _Store().mutateFiado(fiado => {
@@ -525,9 +531,9 @@
 
           validadas.push(venda.id);
 
-          // PASSO 5: Financeiro
-          const FS = window.CH.FinanceiroService;
-          if (FS) FS.registrarReceita(venda);
+          // PASSO 5: Financeiro — VendaMediator registra receita via venda:validada
+          const vendaAtualizada = _Store().getVendas().find(v => v.id === venda.id) || venda;
+          _Bus().emit('venda:validada', vendaAtualizada);
 
           // PASSO 6: Fiado
           if (venda._fiado && venda._fiadoClienteId) {
