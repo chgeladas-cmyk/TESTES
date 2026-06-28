@@ -38,6 +38,8 @@
     const IS    = window.CH.IntegrityService;
     const ES    = window.CH.EstoqueService;
 
+    console.info(`[VendasService] correlationId=${venda.correlationId} vendaId=${venda.id} — iniciando efeitos`);
+
     // ── Estoque ──────────────────────────────────────────────────
     if (ES) {
       if (IS?.confirmarBaixaComRollback) {
@@ -113,8 +115,17 @@
       console.warn('[VendasService] PermissoesService não carregado — usando fallback conservador para role:', role);
     }
 
+    const vendaId = _Utils().generateId();
+
+    // ── Correlation ID ────────────────────────────────────────────
+    // Gerado UMA vez aqui e propagado para estoque, financeiro e auditoria.
+    // Permite rastrear toda a cadeia de operações de uma venda nos logs.
+    // Formato: cid_<6 últimos chars do vendaId>_<timestamp ms>
+    const correlationId = `cid_${vendaId.slice(-6)}_${Date.now()}`;
+
     const venda = {
-      id:               _Utils().generateId(),
+      id:               vendaId,
+      correlationId,
       dataCurta:        _Utils().todayISO(),
       data:             _Utils().today(),
       hora:             _Utils().nowTime(),
