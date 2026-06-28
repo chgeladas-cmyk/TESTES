@@ -21,7 +21,13 @@
   function _Utils()    { return window.CH.Utils; }
   function _Bus()      { return window.CH.EventBus; }
 
-  let _processandoLote = false;
+  // ── Guards de idempotência por operação ───────────────────────────
+  // Cada Set armazena vendaIds em andamento por tipo de operação.
+  // Se o mesmo vendaId chegar duas vezes antes da operação terminar,
+  // a segunda chamada é rejeitada com erro descritivo.
+  const _idsEmAprovacao  = new Set();
+  const _idsEmRejeicao   = new Set();
+  const _idsEmValidacao  = new Set();
 
   function _perm(modulo) {
     const role = _Auth().getRole();
@@ -96,10 +102,16 @@
     if (!_perm('aprovacao_controle'))
       throw new Error('Sem permissão para aprovar vendas');
 
-    const venda = _Store().getVendas().find(v => v.id === vendaId);
-    if (!venda) throw new Error('Venda não encontrada');
-    if (venda.status !== 'pendente')
-      throw new Error(`Venda está "${venda.status}", esperado "pendente"`);
+    // Guard idempotência — impede duplo-clique no botão Aprovar
+    if (_idsEmAprovacao.has(vendaId))
+      throw new Error(`Venda ${vendaId} já está sendo aprovada`);
+    _idsEmAprovacao.add(vendaId);
+
+    try {
+      const venda = _Store().getVendas().find(v => v.id === vendaId);
+      if (!venda) throw new Error('Venda não encontrada');
+      if (venda.status !== 'pendente')
+        throw new Error(`Venda está "${venda.status}", esperado "pendente"`);
 
     // Valida disponibilidade real (estoqueAtual − reservas de outras vendas)
     // Câmbios não movimentam estoque — pula verificação
@@ -140,6 +152,10 @@
     _sync(vendaId);
     _Bus().emit('venda:aprovada', { vendaId, operador: _Auth().getNome() });
     return true;
+
+    } finally {
+      _idsEmAprovacao.delete(vendaId);
+    }
   }
 
   // ── REJEITAR (pendente|aprovada → rejeitada) ──────────────────────
@@ -148,39 +164,49 @@
     const podeV = _perm('aprovacao_validacao');
     if (!podeC && !podeV) throw new Error('Sem permissão para rejeitar vendas');
 
-    const venda = _Store().getVendas().find(v => v.id === vendaId);
-    if (!venda) throw new Error('Venda não encontrada');
-    if (!['pendente', 'aprovada', 'erro_validacao'].includes(venda.status))
-      throw new Error(`Venda "${venda.status}" não pode ser rejeitada`);
+    // Guard idempotência — impede duplo-clique no botão Rejeitar
+    if (_idsEmRejeicao.has(vendaId))
+      throw new Error(`Venda ${vendaId} já está sendo rejeitada`);
+    _idsEmRejeicao.add(vendaId);
 
-    _Store().mutateVendas(list => {
-      const v = list.find(v => v.id === vendaId);
-      if (v) {
-        v.status         = 'rejeitada';
-        v.rejeitadaEm    = _Utils().nowISO();
-        v.rejeitadaPor   = _Auth().getNome();
-        v.motivoRejeicao = motivo;
-      }
-    });
+    try {
+      const venda = _Store().getVendas().find(v => v.id === vendaId);
+      if (!venda) throw new Error('Venda não encontrada');
+      if (!['pendente', 'aprovada', 'erro_validacao'].includes(venda.status))
+        throw new Error(`Venda "${venda.status}" não pode ser rejeitada`);
 
-    window.CH.AuditService?.auditarMudancaStatus(venda, 'rejeitada',
-      motivo || 'Motivo não informado');
-
-    await window.CH.EstoqueService?.liberarReserva?.(vendaId);
-
-    if (venda._fiado && venda._fiadoClienteId) {
-      _Bus().emit('fiado:lancamento:rejeitado', {
-        vendaId,
-        clienteId: venda._fiadoClienteId,
-        valor:     venda.total,
-        motivo,
-        operador:  _Auth().getNome(),
+      _Store().mutateVendas(list => {
+        const v = list.find(v => v.id === vendaId);
+        if (v) {
+          v.status         = 'rejeitada';
+          v.rejeitadaEm    = _Utils().nowISO();
+          v.rejeitadaPor   = _Auth().getNome();
+          v.motivoRejeicao = motivo;
+        }
       });
-    }
 
-    _sync(vendaId);
-    _Bus().emit('venda:rejeitada', { vendaId, motivo, operador: _Auth().getNome() });
-    return true;
+      window.CH.AuditService?.auditarMudancaStatus(venda, 'rejeitada',
+        motivo || 'Motivo não informado');
+
+      await window.CH.EstoqueService?.liberarReserva?.(vendaId);
+
+      if (venda._fiado && venda._fiadoClienteId) {
+        _Bus().emit('fiado:lancamento:rejeitado', {
+          vendaId,
+          clienteId: venda._fiadoClienteId,
+          valor:     venda.total,
+          motivo,
+          operador:  _Auth().getNome(),
+        });
+      }
+
+      _sync(vendaId);
+      _Bus().emit('venda:rejeitada', { vendaId, motivo, operador: _Auth().getNome() });
+      return true;
+
+    } finally {
+      _idsEmRejeicao.delete(vendaId);
+    }
   }
 
   // ── VALIDAR individual (aprovada → validada) ──────────────────────
@@ -188,10 +214,16 @@
     if (!_perm('aprovacao_validacao'))
       throw new Error('Sem permissão para validar vendas');
 
-    const venda = _Store().getVendas().find(v => v.id === vendaId);
-    if (!venda) throw new Error('Venda não encontrada');
-    if (venda.status !== 'aprovada')
-      throw new Error(`Venda está "${venda.status}", esperado "aprovada"`);
+    // Guard idempotência — impede duplo-clique no botão Validar
+    if (_idsEmValidacao.has(vendaId))
+      throw new Error(`Venda ${vendaId} já está sendo validada`);
+    _idsEmValidacao.add(vendaId);
+
+    try {
+      const venda = _Store().getVendas().find(v => v.id === vendaId);
+      if (!venda) throw new Error('Venda não encontrada');
+      if (venda.status !== 'aprovada')
+        throw new Error(`Venda está "${venda.status}", esperado "aprovada"`);
 
     // ── PASSO 1: Verifica estoque disponível ──────────────────────
     // Câmbios não movimentam estoque — pula verificação e baixa
@@ -307,6 +339,10 @@
 
     console.info(`[AprovacaoService] ✓ Venda ${vendaId} validada (baixa: ${baixaOk ? 'OK' : 'PARCIAL'})`);
     return true;
+
+    } finally {
+      _idsEmValidacao.delete(vendaId);
+    }
   }
 
   // ── TENTAR NOVAMENTE (erro_validacao → aprovada → tenta validar de novo) ──

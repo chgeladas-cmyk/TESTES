@@ -30,6 +30,32 @@
   function _Utils()    { return window.CH.Utils; }
   function _Bus()      { return window.CH.EventBus; }
 
+  // ── Guard de idempotência ─────────────────────────────────────────
+  // Armazena idempotencyKeys das vendas em andamento.
+  // Se finalizarVenda() for chamada duas vezes com a mesma chave,
+  // a segunda chamada é rejeitada silenciosamente.
+  // TTL de 5s: após 5 segundos, a chave expira e permite nova tentativa legítima.
+  const _emAndamento = new Map(); // idempotencyKey → timestamp
+  const _TTL_MS = 5_000;
+
+  function _registrarChave(chave) {
+    _limparExpirados();
+    if (_emAndamento.has(chave)) return false; // já em andamento — rejeita
+    _emAndamento.set(chave, Date.now());
+    return true;
+  }
+
+  function _liberarChave(chave) {
+    _emAndamento.delete(chave);
+  }
+
+  function _limparExpirados() {
+    const agora = Date.now();
+    for (const [k, ts] of _emAndamento) {
+      if (agora - ts > _TTL_MS) _emAndamento.delete(k);
+    }
+  }
+
   // ══════════════════════════════════════════════════════════════════
   //  FINALIZAR VENDA — SÍNCRONO (não async!)
   // ══════════════════════════════════════════════════════════════════
@@ -40,6 +66,33 @@
     const desconto = cart.getDesconto ? cart.getDesconto() : (cart.desconto || 0);
 
     if (!itens.length) throw new Error('Carrinho vazio');
+
+    // ── Idempotência: impede venda duplicada por duplo-clique ─────────
+    // A chave é derivada do conteúdo do carrinho + operador + forma de pagamento.
+    // Dois cliques rápidos geram a mesma chave → segundo é rejeitado.
+    // Após 5s a chave expira, permitindo nova venda legítima com o mesmo conteúdo.
+    const idempotencyKey = [
+      _Auth().getNome(),
+      formaPgto || 'Dinheiro',
+      total.toFixed(2),
+      itens.map(i => `${i.prodId}:${i.qtd}:${i.label}`).sort().join('|'),
+    ].join('§');
+
+    if (!_registrarChave(idempotencyKey)) {
+      console.warn(`[VendasService] Duplo-clique detectado — venda ignorada (key=${idempotencyKey.slice(0,40)}...)`);
+      return null; // retorna null: CartService não limpa, UI não avança
+    }
+
+    try {
+      return _finalizarVendaInterno(cart, formaPgto, extras, itens, total, subtotal, desconto, idempotencyKey);
+    } finally {
+      // Libera a chave após execução síncrona — permite nova venda após o fluxo completo
+      // O TTL de 5s protege contra cliques simultâneos enquanto o JS ainda está executando
+      setTimeout(() => _liberarChave(idempotencyKey), _TTL_MS);
+    }
+  }
+
+  function _finalizarVendaInterno(cart, formaPgto, extras, itens, total, subtotal, desconto, idempotencyKey) {
 
     const lucro = itens.reduce((s, i) => s + (i.preco - (i.custo || 0)) * i.qtd, 0) - desconto;
     const role  = _Auth().getRole();
@@ -64,6 +117,7 @@
 
     const venda = {
       id:               vendaId,
+      idempotencyKey,
       correlationId,
       dataCurta:        _Utils().todayISO(),
       data:             _Utils().today(),
