@@ -166,7 +166,7 @@
     window.CH.AuditService?.auditarMudancaStatus(venda, 'rejeitada',
       motivo || 'Motivo não informado');
 
-    window.CH.EstoqueService?.liberarReserva?.(vendaId);
+    await window.CH.EstoqueService?.liberarReserva?.(vendaId);
 
     if (venda._fiado && venda._fiadoClienteId) {
       _Bus().emit('fiado:lancamento:rejeitado', {
@@ -212,7 +212,7 @@
     }
 
     // ── PASSO 2: Libera reserva ───────────────────────────────────
-    if (!venda._cambio) ES?.liberarReserva?.(venda.id);
+    if (!venda._cambio) await ES?.liberarReserva?.(venda.id);
 
     // ── PASSO 3: BAIXA DE ESTOQUE — ANTES DE MUDAR STATUS ─────────
     let baixaOk    = true;   // câmbio sempre ok (sem estoque)
@@ -474,7 +474,7 @@
           }
 
           // PASSO 2: Libera reserva (câmbios pulam)
-          if (!venda._cambio) ES?.liberarReserva?.(venda.id);
+          if (!venda._cambio) await ES?.liberarReserva?.(venda.id);
 
           // PASSO 3: Baixa de estoque (câmbios pulam)
           let baixaOk    = true;   // câmbio ok sem baixa

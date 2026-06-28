@@ -156,7 +156,7 @@
       const ES = window.CH.EstoqueService;
       if (ES?.reservarEstoque) {
         try {
-          const reserva = ES.reservarEstoque(venda.id, venda.itens || []);
+          const reserva = await ES.reservarEstoque(venda.id, venda.itens || []);
           if (reserva && !reserva.ok) {
             // Reserva parcial ou bloqueada — remove a venda do Store e lança erro
             _Store().mutateVendas(vs => {

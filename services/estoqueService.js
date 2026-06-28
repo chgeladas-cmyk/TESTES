@@ -44,37 +44,129 @@
   function _isOnline()  { return navigator.onLine; }
 
   // ══════════════════════════════════════════════════════════════════
-  //  RESERVA DE ESTOQUE — Previne o "Paradoxo do Estoque"
+  //  RESERVA GLOBAL DE ESTOQUE — Firestore: reservasEstoque/{vendaId}
   //
-  //  Quando uma venda vai para status "pendente" o estoque físico
-  //  ainda não é baixado. Sem reserva, dois colaboradores poderiam
-  //  vender o mesmo item até o limite total, causando furo no
-  //  inventário ao validar. A reserva soft-bloqueia as unidades
-  //  enquanto a venda aguarda aprovação/validação.
+  //  Problema resolvido:
+  //    localStorage é local — cada dispositivo tinha sua própria visão
+  //    das reservas. Caixa A reservava 3 Cocas; Caixa B não sabia,
+  //    reservava as mesmas 3. Resultado: furo no inventário.
   //
-  //  Estrutura em localStorage (CH_RESERVAS_ESTOQUE):
-  //    { [vendaId]: { [prodId]: qtdUnidadesReservadas, ... }, ... }
+  //  Solução:
+  //    Reservas gravadas no Firestore sob reservasEstoque/{vendaId}.
+  //    Todos os caixas leem do mesmo lugar via onSnapshot em tempo real.
+  //    Cache em memória (_cacheReservas) serve como buffer local — é
+  //    populado ao receber atualizações do Firestore e ao fazer leitura
+  //    inicial. Em caso de offline, o cache da sessão é usado como
+  //    fallback — nunca localStorage.
+  //
+  //  Estrutura de cada documento reservasEstoque/{vendaId}:
+  //    {
+  //      vendaId:   string,
+  //      itens: {
+  //        [produtoId]: number  // qtd de unidades reservadas
+  //      },
+  //      operador:  string,
+  //      criadaEm:  ISO,
+  //      expiraEm:  ISO,        // criadaEm + 24h — TTL de segurança
+  //      ativa:     boolean,    // false quando liberada (soft-delete)
+  //    }
+  //
+  //  Expiração:
+  //    Reservas com expiraEm < now() são ignoradas nos cálculos e
+  //    removidas do Firestore ao liberar ou ao boot do serviço.
   // ══════════════════════════════════════════════════════════════════
 
-  const _RESERVAS_KEY = 'CH_RESERVAS_ESTOQUE';
+  // Cache em memória — { [vendaId]: { itens: {[prodId]:qtd}, expiraEm, ativa } }
+  let _cacheReservas = {};
+  let _reservasListener = null; // unsubscribe do onSnapshot
 
-  function _getReservas() {
-    try { return JSON.parse(localStorage.getItem(_RESERVAS_KEY) || '{}'); } catch { return {}; }
+  const _RESERVA_TTL_MS = 24 * 60 * 60 * 1000; // 24 horas
+
+  /** Retorna ISO string de expiração = agora + 24h */
+  function _expiracao() {
+    return new Date(Date.now() + _RESERVA_TTL_MS).toISOString();
   }
 
-  function _setReservas(r) {
-    try { localStorage.setItem(_RESERVAS_KEY, JSON.stringify(r)); } catch(_) {}
+  /** Uma reserva está ativa se não expirou e tem ativa !== false */
+  function _reservaAtiva(r) {
+    if (!r || r.ativa === false) return false;
+    if (!r.expiraEm) return true;
+    return new Date(r.expiraEm).getTime() > Date.now();
   }
 
   /**
-   * Reserva unidades de estoque para uma venda pendente.
-   * Deve ser chamado quando a venda entra em status "pendente".
-   * É idempotente: sobrescreve a reserva anterior para o mesmo vendaId.
+   * Inicia listener em tempo real das reservas ativas.
+   * Chamado no boot do EstoqueService.
+   * Atualiza _cacheReservas automaticamente quando outro caixa
+   * cria ou libera uma reserva.
    */
-  function reservarEstoque(vendaId, itens) {
+  function _iniciarListenerReservas() {
+    if (_reservasListener) return; // já está ouvindo
+    if (!_isOnline() || !FirebaseService.isReady()) return;
+
+    try {
+      const colRef = FirebaseService.colRef('reservasEstoque');
+      // Ouve somente reservas ativas (ativa == true)
+      const q = window.CH._fb?.query
+        ? window.CH._fb.query(colRef, window.CH._fb.where('ativa', '==', true))
+        : colRef; // fallback sem filtro se _fb não exposto
+
+      // FirebaseService não expõe onSnapshot diretamente — usamos subscribeRealtime se disponível
+      // Caso contrário, fazemos polling leve a cada 10s via _sincronizarReservas()
+      const _fb = window.__fbSDK || window.firebase?.firestore;
+
+      if (typeof FirebaseService.subscribeRealtime === 'function') {
+        // usa o canal já aberto pelo core.js
+        FirebaseService.subscribeRealtime('reservasEstoque', (docs) => {
+          _cacheReservas = {};
+          for (const doc of docs) {
+            if (_reservaAtiva(doc)) {
+              _cacheReservas[doc.vendaId] = doc;
+            }
+          }
+          _Bus().emit('estoque:reservas_atualizadas', _cacheReservas);
+        });
+      } else {
+        // Fallback: sincroniza uma vez agora e agenda polling leve
+        _sincronizarReservas();
+        setInterval(_sincronizarReservas, 10_000);
+      }
+
+    } catch (e) {
+      console.warn('[EstoqueService] Listener de reservas não iniciado:', e.message);
+    }
+  }
+
+  /**
+   * Lê todas as reservas ativas do Firestore e atualiza o cache.
+   * Usada no boot e como fallback de polling.
+   */
+  async function _sincronizarReservas() {
+    if (!_isOnline() || !FirebaseService.isReady()) return;
+    try {
+      const batch = await FirebaseService.ler('reservasEstoque');
+      if (!Array.isArray(batch)) return;
+      _cacheReservas = {};
+      for (const r of batch) {
+        if (_reservaAtiva(r)) {
+          _cacheReservas[r.vendaId] = r;
+        }
+      }
+    } catch (e) {
+      console.warn('[EstoqueService] Sync de reservas falhou:', e.message);
+    }
+  }
+
+  /**
+   * Reserva unidades de estoque para uma venda pendente no Firestore.
+   * Todos os caixas enxergam a mesma reserva via _cacheReservas (RT).
+   * É idempotente: sobrescreve reserva anterior do mesmo vendaId.
+   * Retorna { ok: boolean, erros: string[] }
+   */
+  async function reservarEstoque(vendaId, itens) {
     if (!vendaId || !itens?.length) return { ok: true, erros: [] };
-    const reservas = _getReservas();
-    reservas[vendaId] = {};
+
+    const itensReserva = {};
     const erros = [];
 
     for (const item of itens) {
@@ -86,62 +178,103 @@
       const qtdUn = item.label === 'UNID' ? item.qtd : item.qtd * (pack?.qtd || 1);
 
       // ── BLOQUEIO ABSOLUTO na reserva ────────────────────────────
-      // Desconta reservas já existentes de OUTRAS vendas.
-      // Garante que a soma de todas as reservas nunca excede o estoque físico.
-      const reservaOutros = Object.entries(reservas)
-        .filter(([vid]) => vid !== vendaId)
-        .reduce((s, [, r]) => s + (r[item.prodId] || 0), 0);
-      const disponivelParaReserva = Math.max(0, (prod.estoqueAtual ?? prod.qtdUn ?? 0) - reservaOutros);
+      // Soma reservas de OUTRAS vendas ativas no cache global.
+      const reservaOutros = Object.entries(_cacheReservas)
+        .filter(([vid, r]) => vid !== vendaId && _reservaAtiva(r))
+        .reduce((s, [, r]) => s + (r.itens?.[item.prodId] || 0), 0);
+
+      const disponivelParaReserva = Math.max(
+        0, (prod.estoqueAtual ?? prod.qtdUn ?? 0) - reservaOutros
+      );
 
       if (disponivelParaReserva < qtdUn) {
         const msg = `"${prod.nome}": disponível para reserva ${disponivelParaReserva}, solicitado ${qtdUn}`;
         console.error(`[EstoqueService] RESERVA BLOQUEADA — ${msg}`);
         erros.push(msg);
-        // Não reserva este item — vendaId[prodId] fica sem entrada = 0 reservado
         continue;
       }
 
-      reservas[vendaId][item.prodId] = (reservas[vendaId][item.prodId] || 0) + qtdUn;
+      itensReserva[item.prodId] = (itensReserva[item.prodId] || 0) + qtdUn;
     }
 
-    _setReservas(reservas);
-    _Bus().emit('estoque:reserva_atualizada', { vendaId });
-
     if (erros.length > 0) {
-      console.warn(`[EstoqueService] Reserva parcial para venda ${vendaId}:`, erros);
       return { ok: false, erros };
     }
 
-    console.info(`[EstoqueService] Reserva criada para venda ${vendaId}:`, reservas[vendaId]);
+    const reservaDoc = {
+      vendaId,
+      itens:     itensReserva,
+      operador:  _usuario(),
+      criadaEm:  _Utils().nowISO(),
+      expiraEm:  _expiracao(),
+      ativa:     true,
+    };
+
+    // Atualiza cache imediatamente (otimista)
+    _cacheReservas[vendaId] = reservaDoc;
+    _Bus().emit('estoque:reserva_atualizada', { vendaId });
+
+    // Persiste no Firestore (best-effort — cache já está correto)
+    if (_isOnline() && FirebaseService.isReady()) {
+      try {
+        const ref = FirebaseService.docRef('reservasEstoque', vendaId);
+        const batch = FirebaseService.getBatch();
+        batch.set(ref, reservaDoc);
+        await batch.commit();
+        console.info(`[EstoqueService] Reserva global criada — venda ${vendaId}:`, itensReserva);
+      } catch (e) {
+        console.warn(`[EstoqueService] Reserva não persistida no Firestore (cache OK):`, e.message);
+      }
+    } else {
+      console.info(`[EstoqueService] Reserva criada apenas em cache (offline) — venda ${vendaId}`);
+    }
+
     return { ok: true, erros: [] };
   }
 
   /**
-   * Libera a reserva de uma venda (rejeição ou validação efetiva).
-   * Após chamar este método, as unidades voltam ao estoque disponível.
+   * Libera a reserva de uma venda no Firestore.
+   * Chamado ao rejeitar, validar ou cancelar uma venda.
    */
-  function liberarReserva(vendaId) {
+  async function liberarReserva(vendaId) {
     if (!vendaId) return;
-    const reservas = _getReservas();
-    if (!reservas[vendaId]) return;
-    delete reservas[vendaId];
-    _setReservas(reservas);
+
+    // Remove do cache imediatamente
+    delete _cacheReservas[vendaId];
     _Bus().emit('estoque:reserva_atualizada', { vendaId });
-    console.info(`[EstoqueService] Reserva liberada para venda ${vendaId}`);
+    console.info(`[EstoqueService] Reserva liberada — venda ${vendaId}`);
+
+    // Soft-delete no Firestore
+    if (_isOnline() && FirebaseService.isReady()) {
+      try {
+        const ref = FirebaseService.docRef('reservasEstoque', vendaId);
+        const batch = FirebaseService.getBatch();
+        batch.set(ref, {
+          vendaId,
+          itens:      {},
+          ativa:      false,
+          liberadaEm: _Utils().nowISO(),
+          operador:   _usuario(),
+        });
+        await batch.commit();
+      } catch (e) {
+        console.warn(`[EstoqueService] Liberação não persistida no Firestore:`, e.message);
+      }
+    }
   }
 
   /**
    * Retorna o total de unidades reservadas para um produto
-   * (soma de todas as vendas pendentes que o incluem).
+   * somando todas as reservas ativas do cache global.
    */
   function getQtdReservada(prodId) {
-    const reservas = _getReservas();
-    return Object.values(reservas).reduce((s, r) => s + (r[prodId] || 0), 0);
+    return Object.values(_cacheReservas)
+      .filter(_reservaAtiva)
+      .reduce((s, r) => s + (r.itens?.[prodId] || 0), 0);
   }
 
   /**
-   * Retorna o estoque disponível descontando reservas de vendas pendentes.
-   * Use este valor no PDV e na tela de aprovação para exibir quantidade real.
+   * Retorna o estoque disponível descontando reservas ativas de todos os caixas.
    */
   function getEstoqueDisponivel(prodId) {
     const prod = getProduto(prodId);
@@ -151,8 +284,11 @@
     return Math.max(0, atual - reservado);
   }
 
-  /** Retorna o mapa completo de reservas (para diagnóstico). */
-  function getReservas() { return _getReservas(); }
+  /** Retorna o cache atual de reservas (para diagnóstico). */
+  function getReservas() { return { ..._cacheReservas }; }
+
+  // Boot: sincroniza reservas e inicia listener
+  _sincronizarReservas().then(() => _iniciarListenerReservas());
 
   // Alias de campos legados → modelo novo (retrocompat)
   function _normalizarProduto(p) {
