@@ -46,6 +46,7 @@
 
 (function () {
   function _Bus()        { return window.CH.EventBus; }
+  function _Store()      { return window.CH.Store; }
   function _Estoque()    { return window.CH.EstoqueService; }
   function _Financeiro() { return window.CH.FinanceiroService; }
   function _Audit()      { return window.CH.AuditService; }
@@ -62,108 +63,80 @@
 
   // ═══════════════════════════════════════════════════════════════════
   //  HANDLER: venda:finalizada
-  //  Origem: vendasService.finalizarVenda() (fluxo direto, sem aprovação)
-  //  Ação:   baixa de estoque → receita financeira
-  //          (auditoria já é disparada pelo AuditService via seu próprio hook)
+  //  Delega para TransactionManager.criarTransacaoVendaFinalizada()
+  //  que executa: Estoque → Financeiro → Auditoria → Sync
   // ═══════════════════════════════════════════════════════════════════
   async function _onVendaFinalizada(venda) {
     if (!venda?.id) return;
-    console.info(`[VendaMediator] venda:finalizada — id=${venda.id} cid=${venda.correlationId}`);
-
-    // ── 1. Baixa de estoque ──────────────────────────────────────────
-    const ES = _Estoque();
-    if (ES) {
-      try {
-        // Tenta via IntegrityService primeiro (rastreabilidade máxima)
-        const IS = window.CH.IntegrityService;
-        if (IS?.confirmarBaixaComRollback) {
-          const r = await IS.confirmarBaixaComRollback(venda, null);
-          if (!r.ok && r.rollbackExecutado) {
-            console.error(`[VendaMediator] Baixa com rollback falhou: venda ${venda.id}`, r.erros);
-            _emit('mediator:estoque:baixa_falhou', {
-              vendaId:       venda.id,
-              correlationId: venda.correlationId,
-              erros:         r.erros,
-              motivo:        r.erros?.join('; '),
-            });
-            _emit('integrity:venda_sem_baixa', {
-              vendaId: venda.id,
-              status:  'concluida',
-              motivo:  r.erros?.join('; '),
-            });
-            return; // não registra receita se estoque falhou
-          }
-        } else if (ES.baixarEstoqueVendaLote) {
-          const r = await ES.baixarEstoqueVendaLote(venda);
-          if (!r.ok && r.itensProcessados === 0) {
-            console.error(`[VendaMediator] baixarEstoqueVendaLote falhou: venda ${venda.id}`);
-            _emit('mediator:estoque:baixa_falhou', {
-              vendaId:       venda.id,
-              correlationId: venda.correlationId,
-              erros:         r.erros,
-            });
-            _emit('integrity:venda_sem_baixa', {
-              vendaId: venda.id,
-              status:  'concluida',
-              motivo:  r.erros?.join('; '),
-            });
-            return;
-          }
-        }
-        _emit('mediator:estoque:baixa_ok', { vendaId: venda.id, correlationId: venda.correlationId });
-      } catch (e) {
-        _erro('venda:finalizada → estoque', e, { vendaId: venda.id });
+    const TM = window.CH.TransactionManager;
+    if (TM) {
+      const resultado = await TM.criarTransacaoVendaFinalizada(venda);
+      if (resultado.status === 'compensado') {
+        _emit('mediator:estoque:baixa_falhou', {
+          vendaId:       venda.id,
+          correlationId: venda.correlationId,
+          erros:         resultado.steps.filter(s => s.status === 'falhou').map(s => s.erro),
+        });
         _emit('integrity:venda_sem_baixa', {
           vendaId: venda.id,
           status:  'concluida',
-          motivo:  e.message,
+          motivo:  resultado.steps.find(s => s.status === 'falhou')?.erro,
         });
-        return; // não registra receita se estoque lançou exceção
+      } else {
+        _emit('mediator:estoque:baixa_ok', { vendaId: venda.id, correlationId: venda.correlationId });
+        _emit('mediator:financeiro:lancado', { tipo: 'receita', vendaId: venda.id, valor: venda.total });
       }
+      return;
     }
+    // Fallback: TransactionManager não disponível — executa diretamente
+    console.warn('[VendaMediator] TransactionManager não disponível — execução direta');
+    await _onVendaFinalizadaDireto(venda);
+  }
 
-    // ── 2. Receita financeira ────────────────────────────────────────
-    const FS = _Financeiro();
-    if (FS?.registrarReceita) {
+  // Fallback usado quando TransactionManager não está carregado
+  async function _onVendaFinalizadaDireto(venda) {
+    const ES = _Estoque();
+    if (ES?.baixarEstoqueVendaLote) {
       try {
-        const lancamento = FS.registrarReceita(venda);
-        if (lancamento) {
-          _emit('mediator:financeiro:lancado', {
-            tipo:          'receita',
-            vendaId:       venda.id,
-            valor:         venda.total,
-            correlationId: venda.correlationId,
-          });
+        const r = await ES.baixarEstoqueVendaLote(venda);
+        if (!r.ok && r.itensProcessados === 0) {
+          _emit('integrity:venda_sem_baixa', { vendaId: venda.id, motivo: r.erros?.join('; ') });
+          return;
         }
       } catch (e) {
-        _erro('venda:finalizada → financeiro', e, { vendaId: venda.id });
+        _emit('integrity:venda_sem_baixa', { vendaId: venda.id, motivo: e.message });
+        return;
       }
     }
+    const FS = _Financeiro();
+    if (FS?.registrarReceita) FS.registrarReceita(venda);
   }
 
   // ═══════════════════════════════════════════════════════════════════
   //  HANDLER: venda:pendente
-  //  Origem: vendasService.finalizarVenda() (fluxo com aprovação)
-  //  Ação:   reserva de estoque
+  //  Delega para TransactionManager.criarTransacaoReserva()
   // ═══════════════════════════════════════════════════════════════════
   async function _onVendaPendente(venda) {
     if (!venda?.id) return;
-    console.info(`[VendaMediator] venda:pendente — id=${venda.id}`);
-
-    const ES = _Estoque();
-    if (!ES?.reservarEstoque) return;
-
-    try {
-      const resultado = await ES.reservarEstoque(venda.id, venda.itens || []);
-      if (resultado?.ok) {
-        _emit('mediator:estoque:reserva_ok', { vendaId: venda.id });
-      } else {
-        console.warn(`[VendaMediator] Reserva falhou para venda ${venda.id}:`, resultado?.erros);
+    const TM = window.CH.TransactionManager;
+    if (TM) {
+      const resultado = await TM.criarTransacaoReserva(venda);
+      if (resultado.status === 'compensado') {
         _emit('mediator:estoque:reserva_falhou', {
           vendaId: venda.id,
-          erros:   resultado?.erros || [],
+          erros:   resultado.steps.filter(s => s.status === 'falhou').map(s => s.erro),
         });
+      } else {
+        _emit('mediator:estoque:reserva_ok', { vendaId: venda.id });
       }
+      return;
+    }
+    const ES = _Estoque();
+    if (!ES?.reservarEstoque) return;
+    try {
+      const r = await ES.reservarEstoque(venda.id, venda.itens || []);
+      if (r?.ok) _emit('mediator:estoque:reserva_ok', { vendaId: venda.id });
+      else _emit('mediator:estoque:reserva_falhou', { vendaId: venda.id, erros: r?.erros || [] });
     } catch (e) {
       _erro('venda:pendente → reservar', e, { vendaId: venda.id });
     }
@@ -171,129 +144,75 @@
 
   // ═══════════════════════════════════════════════════════════════════
   //  HANDLER: venda:cancelada
-  //  Origem: vendasService.cancelarVenda()
-  //  Ação:   estorno de estoque + estorno financeiro
+  //  Delega para TransactionManager.criarTransacaoVendaCancelada()
   // ═══════════════════════════════════════════════════════════════════
   async function _onVendaCancelada({ vendaId, venda, operador }) {
     if (!vendaId) return;
-    console.info(`[VendaMediator] venda:cancelada — id=${vendaId}`);
-
-    // venda pode vir no payload ou buscamos no Store
-    const v = venda || window.CH.Store?.getVendas()?.find(x => x.id === vendaId);
-
-    // ── 1. Estorno de estoque ────────────────────────────────────────
-    if (v && ['concluida', 'validada'].includes(v.status)) {
-      const ES = _Estoque();
-      if (ES?.cancelarVenda) {
-        try {
-          await ES.cancelarVenda(vendaId, v.itens || []);
-        } catch (e) {
-          _erro('venda:cancelada → estoque', e, { vendaId });
-        }
-      }
+    const v = venda || _Store()?.getVendas()?.find(x => x.id === vendaId);
+    if (!v) return;
+    const TM = window.CH.TransactionManager;
+    if (TM) {
+      await TM.criarTransacaoVendaCancelada(v, v.motivoCancelamento || 'Cancelamento operacional');
+      return;
     }
-
-    // ── 2. Estorno financeiro ────────────────────────────────────────
-    if (v) {
-      const FS = _Financeiro();
-      if (FS?.registrarEstorno) {
-        try {
-          const lancamento = FS.registrarEstorno(v);
-          if (lancamento) {
-            _emit('mediator:financeiro:lancado', {
-              tipo:    'estorno',
-              vendaId,
-              valor:   v.total,
-            });
-          }
-        } catch (e) {
-          _erro('venda:cancelada → financeiro', e, { vendaId });
-        }
-      }
+    // Fallback direto
+    const ES = _Estoque();
+    if (v && ['concluida', 'validada'].includes(v.status) && ES?.cancelarVenda) {
+      try { await ES.cancelarVenda(vendaId, v.itens || []); } catch (e) { _erro('cancelada→estoque', e, { vendaId }); }
+    }
+    const FS = _Financeiro();
+    if (v && FS?.registrarEstorno) {
+      try { FS.registrarEstorno(v); } catch (e) { _erro('cancelada→financeiro', e, { vendaId }); }
     }
   }
 
   // ═══════════════════════════════════════════════════════════════════
   //  HANDLER: venda:aprovada
-  //  Origem: aprovacaoService.aprovarVenda()
-  //  Ação:   auditoria (EstoqueService e FinanceiroService não atuam aqui)
+  //  Sem delegação ao TransactionManager — apenas log
   // ═══════════════════════════════════════════════════════════════════
   function _onVendaAprovada({ vendaId, operador }) {
     if (!vendaId) return;
-    // Auditoria já é feita diretamente pelo aprovacaoService via AuditService.
-    // O Mediator loga para rastreabilidade do fluxo.
     console.info(`[VendaMediator] venda:aprovada — id=${vendaId} por ${operador}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════
   //  HANDLER: venda:rejeitada
-  //  Origem: aprovacaoService.rejeitarVenda()
-  //  Ação:   libera reserva de estoque
-  //          (auditoria já feita pelo aprovacaoService)
+  //  Libera reserva — operação simples, sem TransactionManager
   // ═══════════════════════════════════════════════════════════════════
   async function _onVendaRejeitada({ vendaId, motivo, operador }) {
     if (!vendaId) return;
-    console.info(`[VendaMediator] venda:rejeitada — id=${vendaId}`);
-
     const ES = _Estoque();
     if (!ES?.liberarReserva) return;
-
-    const venda = window.CH.Store?.getVendas()?.find(v => v.id === vendaId);
-    if (venda?._cambio) return; // câmbio não tem reserva
-
-    try {
-      await ES.liberarReserva(vendaId);
-    } catch (e) {
-      _erro('venda:rejeitada → liberarReserva', e, { vendaId });
-    }
+    const venda = _Store()?.getVendas()?.find(v => v.id === vendaId);
+    if (venda?._cambio) return;
+    try { await ES.liberarReserva(vendaId); }
+    catch (e) { _erro('venda:rejeitada → liberarReserva', e, { vendaId }); }
   }
 
   // ═══════════════════════════════════════════════════════════════════
   //  HANDLER: venda:validada
-  //  Origem: aprovacaoService.validarVenda()
-  //  Ação:   libera reserva + receita financeira
-  //          (baixa de estoque já foi feita pelo aprovacaoService ANTES de
-  //           mudar o status — a ordem é crítica e não pode ser delegada aqui)
+  //  Delega para TransactionManager.criarTransacaoValidacao()
   // ═══════════════════════════════════════════════════════════════════
   async function _onVendaValidada(venda) {
     if (!venda?.id) return;
-    console.info(`[VendaMediator] venda:validada — id=${venda.id}`);
-
-    // ── 1. Libera reserva ────────────────────────────────────────────
-    // A baixa já ocorreu — a reserva pode ser liberada agora
+    const TM = window.CH.TransactionManager;
+    if (TM) {
+      await TM.criarTransacaoValidacao(venda);
+      return;
+    }
+    // Fallback direto
     const ES = _Estoque();
     if (ES?.liberarReserva && !venda._cambio) {
-      try {
-        await ES.liberarReserva(venda.id);
-      } catch (e) {
-        _erro('venda:validada → liberarReserva', e, { vendaId: venda.id });
-      }
+      try { await ES.liberarReserva(venda.id); } catch (e) { _erro('validada→reserva', e); }
     }
-
-    // ── 2. Receita financeira ────────────────────────────────────────
-    // Idempotência do FinanceiroRepository garante não duplicar
     const FS = _Financeiro();
     if (FS?.registrarReceita) {
-      try {
-        const lancamento = FS.registrarReceita(venda);
-        if (lancamento) {
-          _emit('mediator:financeiro:lancado', {
-            tipo:          'receita',
-            vendaId:       venda.id,
-            valor:         venda.total,
-            correlationId: venda.correlationId,
-          });
-        }
-      } catch (e) {
-        _erro('venda:validada → financeiro', e, { vendaId: venda.id });
-      }
+      try { FS.registrarReceita(venda); } catch (e) { _erro('validada→financeiro', e); }
     }
   }
 
   // ═══════════════════════════════════════════════════════════════════
   //  HANDLER: venda:erro_validacao
-  //  Origem: aprovacaoService._marcarErroValidacao()
-  //  Ação:   log + evento de alerta
   // ═══════════════════════════════════════════════════════════════════
   function _onErroValidacao({ vendaId, motivo, operador }) {
     console.warn(`[VendaMediator] venda:erro_validacao — id=${vendaId} motivo=${motivo}`);
@@ -302,23 +221,16 @@
 
   // ═══════════════════════════════════════════════════════════════════
   //  HANDLER: estoque:movimentado
-  //  Origem: estoqueService._registrarMovimentacao() → EventBus
-  //  Ação:   custo de compra no financeiro (apenas entradas)
+  //  Custo de compra → financeiro (apenas entradas)
   // ═══════════════════════════════════════════════════════════════════
   function _onEstoqueMovimentado(mov) {
     if (mov.tipo !== 'entrada') return;
-
     const custo = Math.abs(mov.custo ?? 0) * Math.abs(mov.quantidade ?? 0);
     if (custo <= 0) return;
-
     const FS = _Financeiro();
     if (!FS?.registrarCustoCompra) return;
-
-    try {
-      FS.registrarCustoCompra(mov);
-    } catch (e) {
-      _erro('estoque:movimentado → financeiro', e, { produtoId: mov.produtoId });
-    }
+    try { FS.registrarCustoCompra(mov); }
+    catch (e) { _erro('estoque:movimentado → financeiro', e, { produtoId: mov.produtoId }); }
   }
 
   // ═══════════════════════════════════════════════════════════════════
