@@ -65,6 +65,20 @@
     };
 
     _Store().mutateFinanceiro(fin => { fin.unshift(lancamento); });
+
+    // Auditoria forense — registra saldo do dia antes e o lançamento criado
+    try {
+      const saldoAntes = _Store().getFinanceiro()
+        .filter(l => l.dataCurta === lancamento.dataCurta && l.id !== lancamento.id)
+        .reduce((s, l) => {
+          if (l.tipo === 'receita') return s + l.valor;
+          if (l.tipo === 'despesa') return s - l.valor;
+          if (l.tipo === 'estorno') return s - l.valor;
+          return s;
+        }, 0);
+      window.CH.AuditService?.auditarFinanceiro(lancamento, saldoAntes);
+    } catch (_) {}
+
     _Bus().emit('financeiro:lancado', lancamento);
     return lancamento;
   }

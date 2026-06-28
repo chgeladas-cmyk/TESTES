@@ -197,6 +197,9 @@
       }
     });
 
+    window.CH.AuditService?.auditarCancelamento(venda,
+      venda.motivoCancelamento || 'Cancelamento pelo operador');
+
     // FIX #1: Duplo estorno removido.
     // O estorno era chamado aqui (direto) E via _Bus().on('venda:cancelada').
     // Agora apenas o EventBus dispara registrarEstorno (ver financeiroService.js).

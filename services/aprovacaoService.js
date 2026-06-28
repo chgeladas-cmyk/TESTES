@@ -134,6 +134,9 @@
       }
     });
 
+    window.CH.AuditService?.auditarMudancaStatus(venda, 'aprovada',
+      `Aprovado por ${_Auth().getNome()}`);
+
     _sync(vendaId);
     _Bus().emit('venda:aprovada', { vendaId, operador: _Auth().getNome() });
     return true;
@@ -159,6 +162,9 @@
         v.motivoRejeicao = motivo;
       }
     });
+
+    window.CH.AuditService?.auditarMudancaStatus(venda, 'rejeitada',
+      motivo || 'Motivo não informado');
 
     window.CH.EstoqueService?.liberarReserva?.(vendaId);
 
@@ -254,6 +260,11 @@
         v._baixaErros = baixaErros.length > 0 ? baixaErros : undefined;
       }
     });
+
+    window.CH.AuditService?.auditarMudancaStatus(venda, 'validada',
+      baixaOk
+        ? `Validado por ${_Auth().getNome()} — baixa de estoque confirmada`
+        : `Validado por ${_Auth().getNome()} — baixa local (offline)`);
 
     if (!_processandoLote) _sync(vendaId);
 
