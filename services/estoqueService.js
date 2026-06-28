@@ -72,20 +72,48 @@
    * É idempotente: sobrescreve a reserva anterior para o mesmo vendaId.
    */
   function reservarEstoque(vendaId, itens) {
-    if (!vendaId || !itens?.length) return;
+    if (!vendaId || !itens?.length) return { ok: true, erros: [] };
     const reservas = _getReservas();
     reservas[vendaId] = {};
+    const erros = [];
+
     for (const item of itens) {
       const prod = getProduto(item.prodId);
       if (!prod) continue;
       if (prod.controlaEstoque === false) continue;
+
       const pack  = prod.packs?.find(pk => pk.label === item.label || (pk.qtd + 'x') === item.label);
       const qtdUn = item.label === 'UNID' ? item.qtd : item.qtd * (pack?.qtd || 1);
+
+      // ── BLOQUEIO ABSOLUTO na reserva ────────────────────────────
+      // Desconta reservas já existentes de OUTRAS vendas.
+      // Garante que a soma de todas as reservas nunca excede o estoque físico.
+      const reservaOutros = Object.entries(reservas)
+        .filter(([vid]) => vid !== vendaId)
+        .reduce((s, [, r]) => s + (r[item.prodId] || 0), 0);
+      const disponivelParaReserva = Math.max(0, (prod.estoqueAtual ?? prod.qtdUn ?? 0) - reservaOutros);
+
+      if (disponivelParaReserva < qtdUn) {
+        const msg = `"${prod.nome}": disponível para reserva ${disponivelParaReserva}, solicitado ${qtdUn}`;
+        console.error(`[EstoqueService] RESERVA BLOQUEADA — ${msg}`);
+        erros.push(msg);
+        // Não reserva este item — vendaId[prodId] fica sem entrada = 0 reservado
+        continue;
+      }
+
       reservas[vendaId][item.prodId] = (reservas[vendaId][item.prodId] || 0) + qtdUn;
     }
+
     _setReservas(reservas);
     _Bus().emit('estoque:reserva_atualizada', { vendaId });
+
+    if (erros.length > 0) {
+      console.warn(`[EstoqueService] Reserva parcial para venda ${vendaId}:`, erros);
+      return { ok: false, erros };
+    }
+
     console.info(`[EstoqueService] Reserva criada para venda ${vendaId}:`, reservas[vendaId]);
+    return { ok: true, erros: [] };
   }
 
   /**
@@ -268,6 +296,23 @@
 
     const estoqueDepois = Math.max(0, estoqueAntes + delta);
     const eSaida = delta < 0;
+
+    // ── BLOQUEIO ABSOLUTO — valida ANTES de qualquer escrita ────────
+    // Aplicado tanto no caminho Firebase quanto no offline.
+    // Impede estoque negativo em qualquer situação.
+    if (eSaida) {
+      const disponivelLocal = getEstoqueDisponivel(produtoId);
+      if (disponivelLocal < Math.abs(delta)) {
+        const err = `[EstoqueService] BLOQUEADO — estoque insuficiente para "${prod.nome}": ` +
+          `disponível ${disponivelLocal} (físico ${estoqueAntes} − reservas), ` +
+          `solicitado ${Math.abs(delta)}`;
+        console.error(err);
+        throw new Error(
+          `Estoque insuficiente para "${prod.nome}": ` +
+          `disponível ${disponivelLocal}, solicitado ${Math.abs(delta)}`
+        );
+      }
+    }
 
     const _tok = FirebaseService.getAdminToken?.();
 
@@ -571,8 +616,31 @@
       for (const { item, prod, qtdUn, origemKey } of itensParaBaixar) {
         const p = estoque.find(x => x.id === item.prodId);
         if (!p) continue;
-        const qtdAntes  = p.qtdUn ?? p.estoqueAtual ?? 0;
-        const qtdDepois = Math.max(0, qtdAntes - qtdUn);
+        const qtdAntes = p.qtdUn ?? p.estoqueAtual ?? 0;
+
+        // ── BLOQUEIO ABSOLUTO offline ────────────────────────────────
+        // Nunca permite estoque negativo mesmo sem Firebase.
+        // Desconta reservas de outras vendas pendentes.
+        const reservado  = getQtdReservada(item.prodId);
+        const disponivel = Math.max(0, qtdAntes - reservado);
+        if (disponivel < qtdUn) {
+          console.error(
+            `[EstoqueService] BLOQUEADO offline — "${prod.nome}": ` +
+            `disponível ${disponivel} (físico ${qtdAntes} − ${reservado} reservados), ` +
+            `solicitado ${qtdUn}. Item ignorado na baixa local.`
+          );
+          _Bus().emit('estoque:bloqueio_negativo', {
+            produtoId:  item.prodId,
+            nomeProduto: prod.nome,
+            disponivel,
+            solicitado: qtdUn,
+            vendaId:    venda.id,
+            correlationId: venda.correlationId || null,
+          });
+          continue; // pula — não baixa, não registra, não vai a zero
+        }
+
+        const qtdDepois = qtdAntes - qtdUn; // garantido >= 0 pela validação acima
         p.qtdUn = qtdDepois; p.estoqueAtual = qtdDepois; p.updatedAt = _Utils().nowISO();
 
         _Store().mutateMovimentacoes(movs => {

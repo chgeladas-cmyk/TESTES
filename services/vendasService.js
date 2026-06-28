@@ -155,8 +155,22 @@
     if (requerAprovacao) {
       const ES = window.CH.EstoqueService;
       if (ES?.reservarEstoque) {
-        try { ES.reservarEstoque(venda.id, venda.itens || []); }
-        catch(e) { console.warn('[VendasService] Reserva de estoque falhou:', e.message); }
+        try {
+          const reserva = ES.reservarEstoque(venda.id, venda.itens || []);
+          if (reserva && !reserva.ok) {
+            // Reserva parcial ou bloqueada — remove a venda do Store e lança erro
+            _Store().mutateVendas(vs => {
+              const idx = vs.findIndex(v => v.id === venda.id);
+              if (idx >= 0) vs.splice(idx, 1);
+            });
+            throw new Error(
+              `Estoque insuficiente para reserva:\n${reserva.erros.join('\n')}`
+            );
+          }
+        } catch(e) {
+          if (e.message.startsWith('Estoque insuficiente')) throw e;
+          console.warn('[VendasService] Reserva de estoque falhou:', e.message);
+        }
       }
       _Bus().emit('venda:pendente', venda);
       console.info(`[VendasService] Venda PENDENTE (${role}) → ${venda.id}`);
