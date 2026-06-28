@@ -144,8 +144,7 @@
   async function _sincronizarReservas() {
     if (!_isOnline() || !FirebaseService.isReady()) return;
     try {
-      const batch = await FirebaseService.ler('reservasEstoque');
-      if (!Array.isArray(batch)) return;
+      const batch = await window.CH.EstoqueRepository?.lerReservas() || [];
       _cacheReservas = {};
       for (const r of batch) {
         if (_reservaAtiva(r)) {
@@ -214,20 +213,10 @@
     _cacheReservas[vendaId] = reservaDoc;
     _Bus().emit('estoque:reserva_atualizada', { vendaId });
 
-    // Persiste no Firestore (best-effort — cache já está correto)
-    if (_isOnline() && FirebaseService.isReady()) {
-      try {
-        const ref = FirebaseService.docRef('reservasEstoque', vendaId);
-        const batch = FirebaseService.getBatch();
-        batch.set(ref, reservaDoc);
-        await batch.commit();
-        console.info(`[EstoqueService] Reserva global criada — venda ${vendaId}:`, itensReserva);
-      } catch (e) {
-        console.warn(`[EstoqueService] Reserva não persistida no Firestore (cache OK):`, e.message);
-      }
-    } else {
-      console.info(`[EstoqueService] Reserva criada apenas em cache (offline) — venda ${vendaId}`);
-    }
+    // EstoqueRepository persiste no Firestore (best-effort — cache já está correto)
+    window.CH.EstoqueRepository?.criarReserva(vendaId, reservaDoc).catch(e =>
+      console.warn('[EstoqueService] criarReserva no repository falhou:', e.message)
+    );
 
     return { ok: true, erros: [] };
   }
@@ -244,23 +233,10 @@
     _Bus().emit('estoque:reserva_atualizada', { vendaId });
     console.info(`[EstoqueService] Reserva liberada — venda ${vendaId}`);
 
-    // Soft-delete no Firestore
-    if (_isOnline() && FirebaseService.isReady()) {
-      try {
-        const ref = FirebaseService.docRef('reservasEstoque', vendaId);
-        const batch = FirebaseService.getBatch();
-        batch.set(ref, {
-          vendaId,
-          itens:      {},
-          ativa:      false,
-          liberadaEm: _Utils().nowISO(),
-          operador:   _usuario(),
-        });
-        await batch.commit();
-      } catch (e) {
-        console.warn(`[EstoqueService] Liberação não persistida no Firestore:`, e.message);
-      }
-    }
+    // EstoqueRepository persiste soft-delete no Firestore
+    window.CH.EstoqueRepository?.liberarReserva(vendaId, _usuario()).catch(e =>
+      console.warn('[EstoqueService] liberarReserva no repository falhou:', e.message)
+    );
   }
 
   /**
@@ -434,8 +410,6 @@
     const eSaida = delta < 0;
 
     // ── BLOQUEIO ABSOLUTO — valida ANTES de qualquer escrita ────────
-    // Aplicado tanto no caminho Firebase quanto no offline.
-    // Impede estoque negativo em qualquer situação.
     if (eSaida) {
       const disponivelLocal = getEstoqueDisponivel(produtoId);
       if (disponivelLocal < Math.abs(delta)) {
@@ -450,77 +424,25 @@
       }
     }
 
-    const _tok = FirebaseService.getAdminToken?.();
+    // ── EstoqueRepository encapsula a Transaction no Firestore ──────
+    const Repo = window.CH.EstoqueRepository;
+    const resultado = await Repo.registrarMovimentacaoTransaction({
+      produtoId, prod, tipo, delta,
+      estoqueAntes, estoqueDepois,
+      origem, operador: operador || _usuario(),
+      observacao, custo, fornecedorId, correlationId,
+    });
 
-    if (_isOnline() && FirebaseService.isReady() && _tok) {
-      try {
-        await FirebaseService.runTransaction(async (tx) => {
-          const estoqueRef = FirebaseService.docRef('ch_dados', 'estoque');
-          const snap       = await tx.get(estoqueRef);
-          const dadosFB    = snap.exists() ? (snap.data().dados || []) : [];
-
-          const prodFB     = dadosFB.find(p => p.id === produtoId);
-          const qtdAtualFB = prodFB ? (prodFB.qtdUn ?? prodFB.estoqueAtual ?? 0) : estoqueAntes;
-
-          if (eSaida && qtdAtualFB < Math.abs(delta)) {
-            throw new Error(
-              `Estoque insuficiente para "${prod.nome}": ` +
-              `disponível ${qtdAtualFB}, solicitado ${Math.abs(delta)}`
-            );
-          }
-
-          const novaQtd    = Math.max(0, qtdAtualFB + delta);
-          const novosDados = dadosFB.map(p =>
-            p.id === produtoId
-              ? { ...p, qtdUn: novaQtd, estoqueAtual: novaQtd, updatedAt: _Utils().nowISO() }
-              : p
-          );
-          if (!prodFB) novosDados.push({ ...prod, qtdUn: novaQtd, estoqueAtual: novaQtd });
-
-          tx.set(estoqueRef, {
-            dados:      novosDados,
-            ts:         _Utils().nowISO(),
-            adminToken: _tok,
-          });
-
-          const movRef = FirebaseService.newDocRef('movimentacoes');
-          tx.set(movRef, {
-            id:            movRef.id,
-            produtoId,
-            nomeProduto:   prod.nome,
-            tipo,
-            quantidade:    delta,
-            estoqueAntes:  qtdAtualFB,
-            estoqueDepois: novaQtd,
-            origem,
-            operador:      operador || _usuario(),
-            observacao,
-            custo:         custo ?? prod.precoCusto ?? 0,
-            fornecedorId,
-            correlationId: correlationId || null,
-            timestamp:     _Utils().nowISO(),
-            dataCurta:     _Utils().todayISO(),
-            adminToken:    _tok,
-          });
-        });
-
-        _Store().mutateEstoque(estoque => {
-          const p = estoque.find(p => p.id === produtoId);
-          if (p) { p.qtdUn = estoqueDepois; p.estoqueAtual = estoqueDepois; p.updatedAt = _Utils().nowISO(); }
-        });
-
-        console.info(`[Estoque] ✓ Transação ${tipo}: ${prod.nome} (${estoqueAntes}→${estoqueDepois})`);
-
-      } catch (e) {
-        if (e.message?.includes('insuficiente')) throw e;
-        console.warn(`[Estoque] Transaction falhou, aplicando localmente: ${e.message}`);
-        _movimentacaoLocal({ produtoId, prod, tipo, delta, estoqueAntes, estoqueDepois, origem, operador, observacao, custo, fornecedorId });
-      }
-
-    } else {
-      const motivo = !_isOnline() ? 'offline' : !FirebaseService.isReady() ? 'Firebase não pronto' : 'sem adminToken';
-      console.info(`[Estoque] Modo local (${motivo}): ${tipo} ${prod.nome}`);
+    if (resultado.ok) {
+      // Confirma localmente após Transaction bem-sucedida (sem SyncQueue — Firestore já atualizado)
+      Repo.salvarEstoqueLocal(produtoId, resultado.qtdDepois ?? estoqueDepois, true);
+    } else if (resultado.localFallback) {
+      // Offline ou falha de rede — aplica localmente
+      console.info(`[Estoque] Modo local (${resultado.motivo || resultado.erro}): ${tipo} ${prod.nome}`);
       _movimentacaoLocal({ produtoId, prod, tipo, delta, estoqueAntes, estoqueDepois, origem, operador, observacao, custo, fornecedorId });
+    } else {
+      // Falha por estoque insuficiente dentro da Transaction — propaga
+      throw new Error(resultado.erro);
     }
 
     const mov = {
@@ -604,8 +526,6 @@
   async function baixarEstoqueVendaLote(venda) {
     if (!venda?.itens?.length) return { ok: true, itensProcessados: 0, erros: [] };
 
-    const _tok = FirebaseService.getAdminToken?.();
-
     const itensParaBaixar = [];
     for (const item of venda.itens) {
       const prod = getProduto(item.prodId);
@@ -633,117 +553,41 @@
       return { ok: true, itensProcessados: 0, erros: [] };
     }
 
-    const erros = [];
+    // ── EstoqueRepository encapsula a Transaction ────────────────────
+    const Repo      = window.CH.EstoqueRepository;
+    const resultado = await Repo.baixarLote(venda, itensParaBaixar);
 
-    // ── Modo Firebase: UMA transaction para todos os itens ──────────
-    if (_isOnline() && FirebaseService.isReady() && _tok) {
-      let resultados = [];
-
-      try {
-        await FirebaseService.runTransaction(async (tx) => {
-          const estoqueRef = FirebaseService.docRef('ch_dados', 'estoque');
-          const snap       = await tx.get(estoqueRef);
-          const dadosFB    = snap.exists() ? (snap.data().dados || []) : [];
-          const dadosMapa  = new Map(dadosFB.map(p => [p.id, { ...p }]));
-
-          resultados = [];
-
-          for (const { item, prod, qtdUn, origemKey } of itensParaBaixar) {
-            const prodFB   = dadosMapa.get(item.prodId) || prod;
-            const qtdAtual = prodFB.qtdUn ?? prodFB.estoqueAtual ?? 0;
-
-            if (qtdAtual < qtdUn) {
-              erros.push(`"${prod.nome}": insuficiente (${qtdAtual} disponível, ${qtdUn} solicitado)`);
-              console.warn(`[Estoque] Lote: ${prod.nome} insuficiente, pulando`);
-              continue;
-            }
-
-            const novaQtd = Math.max(0, qtdAtual - qtdUn);
-            dadosMapa.set(item.prodId, {
-              ...prodFB,
-              qtdUn:        novaQtd,
-              estoqueAtual: novaQtd,
-              updatedAt:    _Utils().nowISO(),
-            });
-            resultados.push({ produtoId: item.prodId, prod, qtdAntes: qtdAtual, qtdDepois: novaQtd, qtdUn, origemKey });
-          }
-
-          if (resultados.length === 0) return;
-
-          const novosDados = [...dadosMapa.values()];
-          tx.set(estoqueRef, {
-            dados:      novosDados,
-            ts:         _Utils().nowISO(),
-            adminToken: _tok,
-          });
-
-          for (const r of resultados) {
-            const movRef = FirebaseService.newDocRef('movimentacoes');
-            tx.set(movRef, {
-              id:            movRef.id,
-              produtoId:     r.produtoId,
-              nomeProduto:   r.prod.nome,
-              tipo:          'venda',
-              quantidade:    -r.qtdUn,
-              estoqueAntes:  r.qtdAntes,
-              estoqueDepois: r.qtdDepois,
-              origem:        r.origemKey,
-              operador:      venda.operador || _usuario(),
-              vendaId:       venda.id,
-              correlationId: venda.correlationId || null,
-              timestamp:     _Utils().nowISO(),
-              dataCurta:     _Utils().todayISO(),
-              adminToken:    _tok,
-            });
-          }
+    if (resultado.ok || resultado.resultados?.length > 0) {
+      // Confirma localmente após Transaction bem-sucedida
+      for (const r of resultado.resultados || []) {
+        Repo.salvarEstoqueLocal(r.produtoId, r.qtdDepois, true);
+        window.CH.AuditService?.auditarMovimentacao({
+          nomeProduto:   r.prod.nome,
+          produtoId:     r.produtoId,
+          tipo:          'venda',
+          quantidade:    -r.qtdUn,
+          estoqueAntes:  r.qtdAntes,
+          estoqueDepois: r.qtdDepois,
+          origem:        r.origemKey,
+          vendaId:       venda.id,
+          correlationId: venda.correlationId || null,
         });
-
-        if (resultados.length > 0) {
-          _Store().mutateEstoque(estoque => {
-            for (const r of resultados) {
-              const p = estoque.find(x => x.id === r.produtoId);
-              if (p) { p.qtdUn = r.qtdDepois; p.estoqueAtual = r.qtdDepois; p.updatedAt = _Utils().nowISO(); }
-            }
-          }, { _semSync: true });
-
-          for (const r of resultados) {
-            window.CH.AuditService?.auditarMovimentacao({
-              nomeProduto:   r.prod.nome,
-              produtoId:     r.produtoId,
-              tipo:          'venda',
-              quantidade:    -r.qtdUn,
-              estoqueAntes:  r.qtdAntes,
-              estoqueDepois: r.qtdDepois,
-              origem:        r.origemKey,
-              vendaId:       venda.id,
-              correlationId: venda.correlationId || null,
-            });
-          }
-        }
-
-        console.info(`[Estoque] ✓ Lote venda ${venda.id}: ${resultados.length} itens baixados`);
-        return { ok: true, itensProcessados: resultados.length, erros };
-
-      } catch (e) {
-        console.warn(`[Estoque] Lote transaction falhou, aplicando localmente:`, e.message);
-        _baixarLoteLocal(venda, itensParaBaixar);
-        erros.push(`Firebase falhou — aplicado localmente`);
-        return {
-          ok:               false,
-          localFallback:    true,
-          itensProcessados: itensParaBaixar.length,
-          erros,
-        };
       }
-
-    } else {
-      // ── Modo offline / sem token ─────────────────────────────────
-      const motivo = !_isOnline() ? 'offline' : !FirebaseService.isReady() ? 'Firebase não pronto' : 'sem adminToken';
-      console.info(`[Estoque] Lote local (${motivo}) venda ${venda.id}`);
-      _baixarLoteLocal(venda, itensParaBaixar);
-      return { ok: false, localFallback: true, itensProcessados: itensParaBaixar.length, erros: [motivo] };
     }
+
+    if (resultado.localFallback) {
+      // Offline ou falha de rede — aplica localmente
+      _baixarLoteLocal(venda, itensParaBaixar);
+    }
+
+    return {
+      ok:               resultado.ok,
+      localFallback:    resultado.localFallback || false,
+      itensProcessados: (resultado.resultados?.length || 0) + (resultado.localFallback ? itensParaBaixar.length : 0),
+      erros:            resultado.erros || [],
+    };
   }
+
 
   /** Baixa local de todos os itens (fallback offline) */
   function _baixarLoteLocal(venda, itensParaBaixar) {
