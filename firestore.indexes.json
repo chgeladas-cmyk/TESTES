@@ -1,0 +1,113 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "vendas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status",    "order": "ASCENDING"  },
+        { "fieldPath": "criadoEm", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "vendas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "dataCurta", "order": "ASCENDING"  },
+        { "fieldPath": "status",    "order": "ASCENDING"  },
+        { "fieldPath": "criadoEm", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "vendas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "operador",  "order": "ASCENDING"  },
+        { "fieldPath": "dataCurta", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "vendas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "_deleted",  "order": "ASCENDING"  },
+        { "fieldPath": "criadoEm", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "movimentacoes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "produtoId",  "order": "ASCENDING"  },
+        { "fieldPath": "timestamp",  "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "movimentacoes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "produtoId",  "order": "ASCENDING"  },
+        { "fieldPath": "tipo",       "order": "ASCENDING"  },
+        { "fieldPath": "timestamp",  "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "movimentacoes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tipo",       "order": "ASCENDING"  },
+        { "fieldPath": "dataCurta",  "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "movimentacoes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "vendaId",    "order": "ASCENDING"  },
+        { "fieldPath": "tipo",       "order": "ASCENDING"  },
+        { "fieldPath": "timestamp",  "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "movimentacoes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "origem",     "order": "ASCENDING"  },
+        { "fieldPath": "timestamp",  "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "reservasEstoque",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ativa",      "order": "ASCENDING"  },
+        { "fieldPath": "expiraEm",   "order": "ASCENDING"  }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "vendas",
+      "fieldPath": "itens",
+      "indexes": [
+        { "order": "ASCENDING",       "queryScope": "COLLECTION" },
+        { "order": "DESCENDING",      "queryScope": "COLLECTION" },
+        { "arrayConfig": "CONTAINS",  "queryScope": "COLLECTION" }
+      ]
+    },
+    {
+      "collectionGroup": "vendas",
+      "fieldPath": "_statusAnterior",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "movimentacoes",
+      "fieldPath": "observacao",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reservasEstoque",
+      "fieldPath": "itens",
+      "indexes": []
+    }
+  ]
+}
