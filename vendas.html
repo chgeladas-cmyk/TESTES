@@ -534,10 +534,37 @@ function renderCatalogo() {
 /* ══ CART ══ */
 function addItem(prodId, label, preco, btn) {
   const prod = Store.getEstoque().find(p => p.id === prodId);
-  if (!prod || prod.qtdUn <= 0) { UIService.showToast('Esgotado', prod?.nome||'', 'error'); return; }
+  if (!prod) { UIService.showToast('Produto não encontrado', '', 'error'); return; }
+
+  // ── BLOQUEIO ABSOLUTO no PDV ─────────────────────────────────────
+  // Usa estoqueDisponivel (físico − reservas de vendas pendentes),
+  // não qtdUn bruto. Impede vender unidades já reservadas.
+  const ES = window.CH?.EstoqueService;
+  const disponivelUn = ES ? ES.getEstoqueDisponivel(prodId) : (prod.qtdUn || 0);
+
+  if (disponivelUn <= 0) {
+    const msg = prod.qtdUn > 0
+      ? `Todas as unidades estão reservadas por vendas pendentes`
+      : `Esgotado`;
+    UIService.showToast(msg, prod.nome, 'error');
+    return;
+  }
+
+  // Verifica se o carrinho já atingiu o disponível
+  const jaNoCarrinho = CartService.getItems()
+    .filter(i => i.prodId === prodId && i.label === label)
+    .reduce((s, i) => s + i.qtd, 0);
+  const pack = prod.packs?.find(pk => pk.label === label);
+  const qtdUnNoCarrinho = label === 'UNID' ? jaNoCarrinho : jaNoCarrinho * (pack?.qtd || 1);
+
+  if (qtdUnNoCarrinho >= disponivelUn) {
+    UIService.showToast(`Limite atingido`, `${prod.nome} — apenas ${disponivelUn} un. disponíveis`, 'error');
+    return;
+  }
+
   CartService.add(prod, 1, label, preco);
-  btn?.classList.add(label==='UNID'?'flash-blue':'flash-amber');
-  setTimeout(()=>btn?.classList.remove('flash-blue','flash-amber'),400);
+  btn?.classList.add(label === 'UNID' ? 'flash-blue' : 'flash-amber');
+  setTimeout(() => btn?.classList.remove('flash-blue', 'flash-amber'), 400);
   UIService.showToast(prod.nome, `+1 ${label} — ${Utils.formatCurrency(preco)}`, 'success');
 }
 
