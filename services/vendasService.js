@@ -6,22 +6,14 @@
  *   finalizarVenda() é SÍNCRONA — retorna o objeto venda imediatamente.
  *   CartService.finalize() (core.js) depende disso para funcionar.
  *
- * FIX CRÍTICO v3 — Integridade Transacional:
- *   Para vendas "concluídas" (fluxo direto sem aprovação):
- *   A baixa de estoque NÃO é mais fire-and-forget.
- *   _processarEfeitosAsync() agora:
- *     1. Executa a baixa com confirmarBaixaComRollback()
- *     2. Se falhar → registra divergência crítica e alerta
- *     3. Registra rastreabilidade completa
- *
- *   Embora o retorno seja síncrono (necessário para CartService),
- *   a baixa falha de forma detectável e rastreável, não silenciosa.
- *   Divergências são detectadas pela reconciliação automática.
+ * ARQUITETURA:
+ *   Após emitir 'venda:finalizada' ou 'venda:pendente', este service para.
+ *   O VendaMediator → TransactionManager orquestram estoque, financeiro e auditoria.
  *
  * FLUXO DE APROVAÇÃO:
- *   Se perfil tem flag "vendas_requer_aprovacao" → status "pendente"
+ *   Perfil com flag 'vendas_requer_aprovacao' → status 'pendente'
  *     → sem estoque, sem financeiro agora.
- *   Caso contrário → status "concluida" → _processarEfeitosAsync()
+ *   Caso contrário → status 'concluida' → VendaMediator trata em background.
  */
 
 (function () {
@@ -168,10 +160,6 @@
     if (venda.status === 'cancelada') throw new Error('Venda já cancelada');
     if (venda.status === 'pendente')  throw new Error('Use "rejeitar" no painel de aprovação');
     if (venda.status === 'rejeitada') throw new Error('Venda já foi rejeitada');
-
-    if (['concluida', 'validada'].includes(venda.status)) {
-      // VendaMediator ouvirá 'venda:cancelada' e chamará EstoqueService.cancelarVenda
-    }
 
     _Store().mutateVendas(vendas => {
       const v = vendas.find(v => v.id === vendaId);

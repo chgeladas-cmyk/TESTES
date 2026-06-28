@@ -159,7 +159,7 @@
   }
 
   // ── REJEITAR (pendente|aprovada → rejeitada) ──────────────────────
-  function rejeitarVenda(vendaId, motivo = '') {
+  async function rejeitarVenda(vendaId, motivo = '') {
     const podeC = _perm('aprovacao_controle');
     const podeV = _perm('aprovacao_validacao');
     if (!podeC && !podeV) throw new Error('Sem permissão para rejeitar vendas');
