@@ -952,6 +952,17 @@ function _verificarAprovacao() {
 function finalizarVenda(forma, troco = 0, parcelaDinheiro = 0, formaRestante = '', parcelaRestante = 0) {
   if (CartService.isEmpty()) return;
 
+  // ── Guard UI: desabilita botão durante execução ───────────────────
+  // Previne duplo-clique enquanto o JS executa finalizarVenda().
+  // O VendasService tem seu próprio guard por idempotencyKey,
+  // mas desabilitar o botão é a primeira linha de defesa (instantânea).
+  const btns = [
+    document.getElementById('btnFinalizar'),
+    document.getElementById('btnFinalizarMob'),
+  ].filter(Boolean);
+  btns.forEach(b => { b.disabled = true; });
+  const _reativarBotoes = () => setTimeout(() => btns.forEach(b => { b.disabled = false; }), 800);
+
   // ── Verifica aprovação independente dos serviços ──────────────
   if (_verificarAprovacao()) {
     const { Store, AuthService, Utils, EventBus } = window.CH;
@@ -977,6 +988,7 @@ function finalizarVenda(forma, troco = 0, parcelaDinheiro = 0, formaRestante = '
     renderCatalogo();
     atualizarAlerta();
     UIService.showToast('Enviado para aprovacao!', 'Aguarda controlador', 'warning');
+    _reativarBotoes();
     return;
   }
 
@@ -984,6 +996,7 @@ function finalizarVenda(forma, troco = 0, parcelaDinheiro = 0, formaRestante = '
   const extras = { troco, parcelaDinheiro, parcelaRestante, formaRestante };
   const result = CartService.finalize(forma, extras);
   const _done = (venda) => {
+    _reativarBotoes();
     if (!venda) return;
     venda._troco           = venda._troco           || troco;
     venda._parcelaDinheiro = venda._parcelaDinheiro || parcelaDinheiro;
@@ -1002,6 +1015,11 @@ function finalizarVenda(forma, troco = 0, parcelaDinheiro = 0, formaRestante = '
 function cancelarUltimaVenda() {
   if (!_ultimaVenda) return;
   if (!confirm(`Cancelar venda de ${Utils.formatCurrency(_ultimaVenda.total)}?\nO estoque será restaurado.`)) return;
+
+  // Guard idempotência: captura e nula _ultimaVenda imediatamente
+  // para impedir segundo clique enquanto a operação ainda corre
+  const vendaParaCancelar = _ultimaVenda;
+  _ultimaVenda = null;
   // Restaurar estoque local
   Store.mutateEstoque(estoque => {
     (_ultimaVenda.itens||[]).forEach(item => {
