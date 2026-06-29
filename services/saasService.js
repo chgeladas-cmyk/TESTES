@@ -116,6 +116,31 @@
 
     await batch.commit();
 
+    // ── Inicializar dados base da empresa em saas_dados/{empresaId} ──
+    // Cria documentos iniciais para que o PDV funcione imediatamente
+    // sem precisar de uma sincronização prévia.
+    try {
+      const agora2 = Utils.nowISO();
+      const cfgRef = _fb.doc(_db, 'saas_dados', empresaId, 'ch_dados', 'config');
+      await _fb.setDoc(cfgRef, {
+        dados: {
+          nomeEstabelecimento: nomeEmpresa.trim(),
+          empresaId,
+          plano,
+          criadoEm: agora2,
+          adminToken: await CryptoService.sha256(`${empresaId}:${senha.trim()}`),
+        },
+        ts:         agora2,
+        adminToken: await CryptoService.sha256(`${empresaId}:${senha.trim()}`),
+      });
+
+      const estoqueRef = _fb.doc(_db, 'saas_dados', empresaId, 'ch_dados', 'estoque');
+      await _fb.setDoc(estoqueRef, { dados: [], ts: agora2 });
+      console.info(`[SaasService] ✓ Dados base inicializados para empresa ${empresaId}`);
+    } catch(e) {
+      console.warn('[SaasService] Aviso: dados base não inicializados:', e.message);
+    }
+
     // Sessão automática após registro
     const sess = { uid, empresaId, nome: nomeUsuario.trim(), role: 'dono', plano, loginAt: Date.now() };
     _saveSession(sess);

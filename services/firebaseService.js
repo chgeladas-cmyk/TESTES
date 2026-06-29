@@ -10,6 +10,16 @@
  *   atualizar()      → merge de documentos
  *   subscribeRealtime() → listeners em tempo real
  *
+ * MULTI-TENANT (SaaS):
+ *   Quando existe uma sessão SaaS ativa (window.CH.SaasService?.getEmpresaId()),
+ *   todos os caminhos do Firestore são roteados para:
+ *     ch_dados/{col}     → saas_dados/{empresaId}/ch_dados/{col}
+ *     vendas/{id}        → saas_dados/{empresaId}/vendas/{id}
+ *     movimentacoes/{id} → saas_dados/{empresaId}/movimentacoes/{id}
+ *     reservasEstoque/   → saas_dados/{empresaId}/reservasEstoque/
+ *   Assim cada empresa tem seus dados 100% isolados.
+ *   Sem sessão SaaS: comportamento original (instalação local única).
+ *
  * PARA CORRIGIR: toque APENAS este arquivo.
  * DEPENDÊNCIAS:  window.CH.{CONSTANTS, Utils, EventBus, Store}
  */
@@ -28,6 +38,59 @@
     };
 
     let _db=null, _auth=null, _fb=null;
+
+    // ── Roteamento Multi-Tenant ─────────────────────────────────────
+    // Retorna o empresaId da sessão SaaS ativa, ou null em instalação local.
+    function _empresaId() {
+      try { return window.CH?.SaasService?.getEmpresaId?.() || null; }
+      catch (_) { return null; }
+    }
+
+    // Retorna o caminho do documento envelope ch_dados.
+    // SaaS:  saas_dados/{empresaId}/ch_dados/{col}
+    // Local: ch_dados/{col}
+    function _chDadosRef(col) {
+      const eid = _empresaId();
+      if (eid) return _fb.doc(_db, 'saas_dados', eid, 'ch_dados', col);
+      return _fb.doc(_db, 'ch_dados', col);
+    }
+
+    // Retorna a CollectionReference de vendas.
+    // SaaS:  saas_dados/{empresaId}/vendas
+    // Local: vendas
+    function _vendasCol() {
+      const eid = _empresaId();
+      if (eid) return _fb.collection(_db, 'saas_dados', eid, 'vendas');
+      return _fb.collection(_db, 'vendas');
+    }
+
+    // Retorna DocReference de uma venda.
+    function _vendaRef(vendaId) {
+      const eid = _empresaId();
+      if (eid) return _fb.doc(_db, 'saas_dados', eid, 'vendas', vendaId);
+      return _fb.doc(_db, 'vendas', vendaId);
+    }
+
+    // Retorna CollectionReference de movimentacoes.
+    function _movCol() {
+      const eid = _empresaId();
+      if (eid) return _fb.collection(_db, 'saas_dados', eid, 'movimentacoes');
+      return _fb.collection(_db, 'movimentacoes');
+    }
+
+    // Retorna DocReference de movimentacao.
+    function _movRef(movId) {
+      const eid = _empresaId();
+      if (eid) return _fb.doc(_db, 'saas_dados', eid, 'movimentacoes', movId);
+      return _fb.doc(_db, 'movimentacoes', movId);
+    }
+
+    // Retorna DocReference de reserva.
+    function _reservaRef(vendaId) {
+      const eid = _empresaId();
+      if (eid) return _fb.doc(_db, 'saas_dados', eid, 'reservasEstoque', vendaId);
+      return _fb.doc(_db, 'reservasEstoque', vendaId);
+    }
     let _ready=false, _adminToken=null;
     let _unsubscribers=[];
 
@@ -77,7 +140,7 @@
       // Listener RT de vendas: apenas as 50 mais recentes.
       // Vendas antigas são buscadas sob demanda via VendaRepository.buscarPagina().
       try {
-        const q = _fb.query(_fb.collection(_db,'vendas'),_fb.orderBy('criadoEm','desc'),_fb.limit(50));
+        const q = _fb.query(_vendasCol(),_fb.orderBy('criadoEm','desc'),_fb.limit(50));
         const unsub = _fb.onSnapshot(q, snap=>{
           const vendas=snap.docs.map(d=>({...d.data(),_fbSynced:true})).filter(v=>!v._deleted);
           try{localStorage.setItem(CONSTANTS.DB.VENDAS,JSON.stringify(vendas));}catch(_){}
@@ -95,7 +158,7 @@
 
       colsRT.forEach(col=>{
         try {
-          const unsub = _fb.onSnapshot(_fb.doc(_db,'ch_dados',col), snap=>{
+          const unsub = _fb.onSnapshot(_chDadosRef(col), snap=>{
             if (!snap.exists()) return;
             const dados=snap.data()?.dados;
             if (!dados) return;
@@ -155,7 +218,7 @@
           const pendentes=Array.isArray(dados)?dados.filter(v=>v?.id&&!v._fbSynced).slice(0,50):[];
           if (!pendentes.length) return true;
           const batch=_fb.writeBatch(_db);
-          pendentes.forEach(v=>{const ref=_fb.doc(_db,'vendas',v.id);batch.set(ref,{...v,_fbSynced:true,syncedAt:Utils.nowISO()});});
+          pendentes.forEach(v=>{const ref=_vendaRef(v.id);batch.set(ref,{...v,_fbSynced:true,syncedAt:Utils.nowISO()});});
           await batch.commit();
           const key=CONSTANTS.DB.VENDAS;
           try{
@@ -170,7 +233,7 @@
           const _semAdminToken=new Set(['comandas','fiado','cambio']);
           const docData={dados,ts:Utils.nowISO()};
           if (_adminToken&&!_semAdminToken.has(colName)) docData.adminToken=_adminToken;
-          await _fb.setDoc(_fb.doc(_db,'ch_dados',colName),docData);
+          await _fb.setDoc(_chDadosRef(colName),docData);
         }
         return true;
       } catch(e){console.warn('[Firebase] Salvar falhou:',colName,e.code||e.message);return false;}
@@ -183,7 +246,7 @@
           const ids=Array.isArray(dados)?dados:[dados];
           const batch=_fb.writeBatch(_db);
           ids.forEach(id=>{
-            const ref=_fb.doc(_db,'vendas',typeof id==='string'?id:id.id);
+            const ref=_vendaRef(typeof id==='string'?id:id.id);
             const d={_deleted:true,_fbSynced:true,updatedAt:Utils.nowISO()};
             if(_adminToken) d.adminToken=_adminToken;
             batch.set(ref,d,{merge:true});
@@ -201,7 +264,7 @@
         if (colName==='vendas') {
           const itens=Array.isArray(dados)?dados:[dados];
           const batch=_fb.writeBatch(_db);
-          itens.forEach(v=>{const ref=_fb.doc(_db,'vendas',v.id);batch.set(ref,{...v,_fbSynced:true,updatedAt:Utils.nowISO()},{merge:true});});
+          itens.forEach(v=>{const ref=_vendaRef(v.id);batch.set(ref,{...v,_fbSynced:true,updatedAt:Utils.nowISO()},{merge:true});});
           await batch.commit();
           console.info('[Firebase] ✓ venda(s) atualizada(s):',itens.length);
         }
@@ -216,12 +279,12 @@
           // Paginação: limite padrão 50. Cursor opcional via opts.cursor (último DocumentSnapshot).
           const limite = opts.limite || 50;
           let q = _fb.query(
-            _fb.collection(_db,'vendas'),
+            _vendasCol(),
             _fb.orderBy('criadoEm','desc'),
             _fb.limit(limite)
           );
           if (opts.cursor) q = _fb.query(
-            _fb.collection(_db,'vendas'),
+            _vendasCol(),
             _fb.orderBy('criadoEm','desc'),
             _fb.startAfter(opts.cursor),
             _fb.limit(limite)
@@ -232,7 +295,7 @@
           const temMais   = snap.docs.length === limite;
           return { docs, ultimoDoc, temMais, pagina: opts.pagina || 1 };
         } else {
-          const snap=await _fb.getDoc(_fb.doc(_db,'ch_dados',colName));
+          const snap=await _fb.getDoc(_chDadosRef(colName));
           return snap.exists()?snap.data().dados:null;
         }
       } catch(e){console.warn('[Firebase] Ler falhou:',colName,e.code||e.message);return null;}
