@@ -216,9 +216,47 @@ service cloud.firestore {
       allow write: if autenticado();
     }
 
-    // saas_dados: isolamento por empresaId no path
-    // App valida sessão — Firestore garante que só autenticados chegam aqui
-    match /saas_dados/{empId}/{colecao}/{docId} {
+    // ─── /saas_dados/{empId} — Dados operacionais isolados por empresa ─
+    //
+    // Estrutura:
+    //   saas_dados/{empId}/ch_dados/{col}      → envelope (estoque, config, etc.)
+    //   saas_dados/{empId}/vendas/{vendaId}    → vendas individuais
+    //   saas_dados/{empId}/movimentacoes/{id}  → movimentações de estoque
+    //   saas_dados/{empId}/reservasEstoque/{id}→ reservas de estoque pendente
+    //
+    // Isolamento: o app valida empresaId na sessão SAAS_SESSION.
+    // Firestore garante que apenas autenticados chegam aqui.
+    // Cada empresa só acessa seus próprios dados pois o app
+    // nunca mistura empresaIds na mesma sessão.
+    //
+    // ch_dados envelope — exige documento válido
+    match /saas_dados/{empId}/ch_dados/{col} {
+      allow read:  if autenticado();
+      allow write: if autenticado() && docValido(request.resource.data);
+    }
+
+    // vendas individuais — mesmas regras da coleção raiz
+    match /saas_dados/{empId}/vendas/{vendaId} {
+      allow create: if autenticado() && vendaValida(request.resource.data);
+      allow read:   if autenticado();
+      allow update: if autenticado();
+      allow delete: if autenticado() && temAdminToken(request.resource.data);
+    }
+
+    // movimentações — mesmas regras da coleção raiz
+    match /saas_dados/{empId}/movimentacoes/{movId} {
+      allow create: if autenticado() && movimentacaoValida(request.resource.data);
+      allow read:   if autenticado();
+      allow update, delete: if autenticado() && temAdminToken(request.resource.data);
+    }
+
+    // reservas de estoque — leitura/escrita por qualquer autenticado
+    match /saas_dados/{empId}/reservasEstoque/{vendaId} {
+      allow read, write: if autenticado();
+    }
+
+    // Qualquer outra subcoleção dentro de saas_dados/{empId}
+    match /saas_dados/{empId}/{col}/{docId} {
       allow read, write: if autenticado();
     }
 

@@ -766,6 +766,27 @@ const FirebaseService = (() => {
   }
   }
 
+  
+  // ── Roteamento Multi-Tenant ─────────────────────────────────────
+  // Em contexto SaaS, roteia para saas_dados/{empresaId}/...
+  // Em instalação local, usa os caminhos originais.
+  function _empId() {
+    try { return window.CH?.SaasService?.getEmpresaId?.() || null; }
+    catch(_) { return null; }
+  }
+  function _chRef(col) {
+    const e = _empId();
+    return e
+      ? _fb.doc(_db, 'saas_dados', e, 'ch_dados', col)
+      : _fb.doc(_db, 'ch_dados', col);
+  }
+  function _vendasCollection() {
+    const e = _empId();
+    return e
+      ? _fb.collection(_db, 'saas_dados', e, 'vendas')
+      : _fb.collection(_db, 'vendas');
+  }
+
   function _attachRealtimeListeners() {
   _unsubscribers.forEach(fn => { try { fn(); } catch(_) {} });
   _unsubscribers = [];
@@ -779,7 +800,7 @@ const FirebaseService = (() => {
   // ── Listener em tempo real para coleção vendas ────────────────────
   try {
     const vendasQuery = _fb.query(
-      _fb.collection(_db, 'vendas'),
+      _vendasCollection(),
       _fb.orderBy('criadoEm', 'desc'),
       _fb.limit(50)  // Paginação: listener RT carrega apenas as 50 mais recentes
     );
@@ -799,7 +820,7 @@ const FirebaseService = (() => {
   colsRT.forEach(col => {
     try {
    const unsub = _fb.onSnapshot(
-     _fb.doc(_db, 'ch_dados', col),
+     _chRef(col),
      snap => {
        if (!snap.exists()) return;
        // FIX [ALTO]: hasPendingWrites guard — evita sobrescrever escrita local
@@ -933,7 +954,7 @@ const FirebaseService = (() => {
       const _semAdminToken = new Set(['comandas', 'fiado', 'cambio', 'ponto']);
       const docData = { dados, ts: Utils.nowISO() };
       if (_adminToken && !_semAdminToken.has(colName)) docData.adminToken = _adminToken;
-      await _fb.setDoc(_fb.doc(_db, 'ch_dados', colName), docData);
+      await _fb.setDoc(_chRef(colName), docData);
     }
     return true;
   } catch(e) {
@@ -994,11 +1015,11 @@ const FirebaseService = (() => {
     if (colName === 'vendas') {
    // Primeira página apenas — para histórico completo usar VendaRepository.buscarPagina()
    const snap = await _fb.getDocs(
-     _fb.query(_fb.collection(_db, 'vendas'), _fb.orderBy('criadoEm','desc'), _fb.limit(50))
+     _fb.query(_vendasCollection(), _fb.orderBy('criadoEm','desc'), _fb.limit(50))
    );
    return snap.docs.map(d => ({ ...d.data(), _fbSynced: true })).filter(v => !v._deleted);
     } else {
-   const snap = await _fb.getDoc(_fb.doc(_db, 'ch_dados', colName));
+   const snap = await _fb.getDoc(_chRef(colName));
    return snap.exists() ? snap.data().dados : null;
     }
   } catch(e) {
@@ -1016,21 +1037,39 @@ const FirebaseService = (() => {
   return _fb.runTransaction(_db, fn);
   }
 
+  // ── Mapeamento SaaS para caminhos com prefixo saas_dados/{empresaId} ──
+  // Coleções que devem ser isoladas por empresa quando em contexto SaaS.
+  const _SAAS_COLS = new Set([
+    'ch_dados','vendas','movimentacoes','reservasEstoque',
+    'categorias','fornecedores',
+  ]);
+
+  // Resolve o colPath real: se SaaS ativo e coleção isolável, prefixa com saas_dados/{empId}/
+  function _resolveColPath(colPath) {
+    const eid = _empId();
+    if (!eid) return colPath;
+    // colPath pode ser 'ch_dados' ou 'ch_dados/estoque' (subcaminho)
+    const base = colPath.split('/')[0];
+    if (!_SAAS_COLS.has(base)) return colPath;
+    return `saas_dados/${eid}/${colPath}`;
+  }
+
   function docRef(colPath, docId) {
   _requireReady();
+  const path = _resolveColPath(colPath);
   return docId
-    ? _fb.doc(_db, colPath, docId)
-    : _fb.doc(_db, colPath);
+    ? _fb.doc(_db, path, docId)
+    : _fb.doc(_db, path);
   }
 
   function colRef(colPath) {
   _requireReady();
-  return _fb.collection(_db, colPath);
+  return _fb.collection(_db, _resolveColPath(colPath));
   }
 
   function newDocRef(colPath) {
   _requireReady();
-  return _fb.doc(_fb.collection(_db, colPath));
+  return _fb.doc(_fb.collection(_db, _resolveColPath(colPath)));
   }
 
   function getBatch() {
