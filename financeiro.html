@@ -48,6 +48,9 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .range-sc{font-size:.6rem;font-weight:800;padding:.3rem .65rem;border-radius:.6rem;border:1px solid rgba(139,92,246,.2);color:#6b7280;cursor:pointer;transition:all .15s;}
 .range-sc:hover,.range-sc.act{background:rgba(139,92,246,.15);border-color:rgba(139,92,246,.4);color:#a78bfa;}
 #rangeBadge{display:none;}
+/* Botão de busca do histórico */
+.btn-busca{flex-shrink:0;width:44px;background:#8b5cf6;border:2px solid #8b5cf6;border-radius:.75rem;color:#fff;font-size:.85rem;display:flex;align-items:center;justify-content:center;transition:all .15s;cursor:pointer;}
+.btn-busca:hover,.btn-busca:active{background:#7c3aed;border-color:#7c3aed;}
 
 /* STAT CARD */
 .stat{background:rgba(13,17,23,.85);border:1px solid var(--border);border-radius:1.5rem;padding:1.25rem;transition:all .2s;}
@@ -219,7 +222,15 @@ body.is-admin .adm-only.block-only{display:block!important;}
         <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Histórico de Vendas</p>
         <span id="histTotal" class="badge b-blue text-[8px]">0</span>
       </div>
-      <input type="text" id="histBusca" oninput="renderHistorico()" class="inp !py-2 !text-xs mb-3" placeholder="Ex: 01.06.26 = relatório dia | 06.26 = mês | ou produto, pgto...">
+      <div class="flex gap-2 mb-3">
+        <input type="text" id="histBusca" oninput="renderHistorico()"
+          onkeydown="if(event.key==='Enter'){renderHistorico(); this.blur();}"
+          class="inp !py-2 !text-xs flex-1" placeholder="Ex: 01.06.26 = relatório dia | 06.26 = mês | ou produto, pgto...">
+        <button onclick="renderHistorico(); document.getElementById('histBusca').blur();"
+          class="btn-busca" title="Buscar">
+          <i class="fas fa-search"></i>
+        </button>
+      </div>
       <div id="historico" class="space-y-2 max-h-80 overflow-y-auto scroll"></div>
     </div>
 
@@ -438,7 +449,6 @@ function setPeriodo(per, btn) {
 function filtrarVendas() {
   const todas  = Store.getVendas().filter(v => ['concluida','validada'].includes(v.status || 'concluida'));
   const agora  = new Date();
-  const hoje   = Utils.todayISO();
 
   // ── Range personalizado (início → fim, 00:00 a 23:59) ──────────────────
   if (_periodo === 'range' && _rangeIni) {
@@ -450,7 +460,14 @@ function filtrarVendas() {
     });
   }
 
-  if (_periodo === 'hoje')   return todas.filter(v => v.dataCurta === hoje);
+  if (_periodo === 'hoje') {
+    const ini = new Date(agora); ini.setHours(0,0,0,0);
+    const fim = new Date(agora); fim.setHours(23,59,59,999);
+    return todas.filter(v => {
+      const ts = new Date(v.criadoEm || v.dataCurta);
+      return ts >= ini && ts <= fim;
+    });
+  }
   if (_periodo === 'semana') {
     const ini = new Date(agora); ini.setDate(ini.getDate() - 6); ini.setHours(0,0,0,0);
     return todas.filter(v => new Date(v.criadoEm || v.dataCurta) >= ini);
@@ -1116,7 +1133,14 @@ function _gerarTextoRelatorio() {
 
   // Formas de pgto
   const pgtos = {};
-  vendas.forEach(v => { const f=v.formaPgto||'Outro'; pgtos[f]=(pgtos[f]||0)+(v.total||0); });
+  vendas.forEach(v => {
+    const f = v.formaPgto||'Outro';
+    pgtos[f] = (pgtos[f]||0) + (v.total||0);
+    // Câmbio: registra saída de espécie separada
+    if (v._cambio && v._cambioSaida > 0) {
+      pgtos['Dinheiro (Câmbio Saída)'] = (pgtos['Dinheiro (Câmbio Saída)']||0) - v._cambioSaida;
+    }
+  });
   txt += `FORMAS DE PAGAMENTO\n${sep2}\n`;
   Object.entries(pgtos).sort((a,b)=>b[1]-a[1]).forEach(([f,v]) => txt += `  ${f.padEnd(12)} ${Utils.formatCurrency(v)}\n`);
   txt += '\n';
@@ -1257,7 +1281,9 @@ function abrirRelDiario() {
   const fatur  = vendas.reduce((s,v) => s + (v.total||0), 0);
   const lucro  = vendas.reduce((s,v) => s + (v.lucro||0), 0);
   const totalDespesas = despesas.reduce((s,d) => s + (d.valor||0), 0);
-  const caixa  = fatur - totalDespesas;
+  // Câmbio: saída de dinheiro físico reduz o caixa
+  const saidaCambio = vendas.filter(v => v._cambio).reduce((s,v) => s + (v._cambioSaida||0), 0);
+  const caixa  = fatur - totalDespesas - saidaCambio;
   document.getElementById('relDiarioKpis').innerHTML = [
     ['Faturamento', Utils.formatCurrency(fatur), 'text-emerald-400'],
     ['Lucro Bruto',  Utils.formatCurrency(lucro),  'text-blue-400'],
@@ -1278,7 +1304,8 @@ function abrirRelDiario() {
     if (!formas[f]) formas[f] = { total: 0, qtd: 0 };
     formas[f].total += v.total || 0;
     formas[f].qtd++;
-    // Misto: separar parcelas
+
+    // ── Misto (Dinheiro+Pix etc): separar parcelas ──
     if (f.startsWith('Dinheiro+') && v._parcelaDinheiro) {
       const f2 = f.replace('Dinheiro+', '');
       if (!formas['Dinheiro']) formas['Dinheiro'] = { total: 0, qtd: 0 };
@@ -1288,17 +1315,38 @@ function abrirRelDiario() {
       formas[f].total -= v.total; formas[f].qtd--;
       if (formas[f].qtd <= 0) delete formas[f];
     }
+
+    // ── CÂMBIO: entrada Pix/Cartão, SAÍDA dinheiro espécie ──────────
+    // O _cambioSaida representa o dinheiro físico entregue ao cliente.
+    // Essa saída REDUZ o caixa em dinheiro (retirada física do caixa).
+    if (v._cambio && v._cambioSaida > 0) {
+      if (!formas['Dinheiro (Câmbio Saída)'])
+        formas['Dinheiro (Câmbio Saída)'] = { total: 0, qtd: 0, saida: true };
+      formas['Dinheiro (Câmbio Saída)'].total += v._cambioSaida;
+      formas['Dinheiro (Câmbio Saída)'].qtd++;
+    }
   });
   const COR_FORMA = { Dinheiro:'text-emerald-400', Pix:'text-blue-400', Crédito:'text-amber-400', Débito:'text-purple-400', Fiado:'text-red-400' };
   document.getElementById('relDiarioFormas').innerHTML =
-    Object.entries(formas).sort((a,b) => b[1].total - a[1].total).map(([f, d]) => `
-      <div class="flex items-center justify-between bg-slate-900/60 border border-white/5 rounded-xl px-3 py-2">
-        <span class="text-[10px] font-black ${COR_FORMA[f] || 'text-slate-300'}">${f}</span>
+    Object.entries(formas).sort((a,b) => {
+      // Saídas de câmbio aparecem no final
+      if (a[1].saida && !b[1].saida) return 1;
+      if (!a[1].saida && b[1].saida) return -1;
+      return b[1].total - a[1].total;
+    }).map(([f, d]) => {
+      const isSaida = !!d.saida;
+      const cor = isSaida ? 'text-red-400' : (COR_FORMA[f] || 'text-slate-300');
+      const sinal = isSaida ? '-' : '';
+      const label = isSaida ? `${d.qtd} câmbio${d.qtd!==1?'s':''}` : `${d.qtd} venda${d.qtd!==1?'s':''}`;
+      return `
+      <div class="flex items-center justify-between bg-slate-900/60 border border-white/5 rounded-xl px-3 py-2 ${isSaida ? 'border-red-500/15' : ''}">
+        <span class="text-[10px] font-black ${cor}">${isSaida ? '↙ ' : ''}${f}</span>
         <div class="flex items-center gap-3">
-          <span class="text-[9px] text-slate-500 font-bold">${d.qtd} venda${d.qtd!==1?'s':''}</span>
-          <span class="text-[10px] font-black text-white">${Utils.formatCurrency(d.total)}</span>
+          <span class="text-[9px] text-slate-500 font-bold">${label}</span>
+          <span class="text-[10px] font-black ${isSaida ? 'text-red-400' : 'text-white'}">${sinal}${Utils.formatCurrency(d.total)}</span>
         </div>
-      </div>`).join('') || '<p class="text-[9px] text-slate-600 text-center py-2">Sem vendas hoje</p>';
+      </div>`;
+    }).join('') || '<p class="text-[9px] text-slate-600 text-center py-2">Sem vendas hoje</p>';
 
   // Top produtos
   const prods = {};
