@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#04060d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="CH Geladas">
+<title>Documentos — CH Geladas</title>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap');
+:root{--bg:#060810;--border:rgba(255,255,255,0.06);}
+*{box-sizing:border-box;}
+body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:#f1f5f9;min-height:100vh;user-select:none;touch-action:manipulation;-webkit-tap-highlight-color:transparent;}
+body{background-image:radial-gradient(ellipse at 20% 80%,rgba(56,189,248,.05) 0%,transparent 50%);}
+
+#lock{position:fixed;inset:0;z-index:9999;background:radial-gradient(ellipse at 50% 40%,#0f1a2e 0%,#060810 70%);display:flex;align-items:center;justify-content:center;}
+#lock.hidden{display:none;}
+
+.modal{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:1rem;background:rgba(0,0,0,.8);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .2s,visibility .2s;}
+.modal.open{opacity:1;visibility:visible;pointer-events:auto;}
+.modal.open>.modal-box{animation:mIn .22s cubic-bezier(.34,1.56,.64,1) forwards;}
+@keyframes mIn{from{opacity:0;transform:scale(.93) translateY(8px);}to{opacity:1;transform:scale(1) translateY(0);}}
+.modal-box{background:rgba(13,17,23,.98);border:1px solid rgba(255,255,255,.09);border-radius:2rem;width:100%;box-shadow:0 32px 64px rgba(0,0,0,.6);}
+
+.inp{font-size:16px!important;padding:12px 14px;color:#fff;background:#1e293b;border:2px solid #334155;border-radius:.75rem;width:100%;outline:none;transition:all .2s;font-family:inherit;}
+.inp:focus{border-color:#38bdf8!important;box-shadow:0 0 0 4px rgba(56,189,248,.15)!important;}
+.inp::placeholder{color:#64748b;}
+.label{color:#7dd3fc;font-size:.62rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.35rem;display:block;}
+
+.tab-bar{display:flex;gap:.4rem;padding:.6rem .75rem;background:rgba(6,8,16,.9);border-bottom:1px solid var(--border);position:sticky;top:48px;z-index:30;}
+.tab-btn{flex:1;padding:.6rem .4rem;border-radius:.9rem;text-align:center;font-size:.62rem;font-weight:900;text-transform:uppercase;letter-spacing:.05em;color:#64748b;background:rgba(255,255,255,.02);border:1.5px solid transparent;transition:all .15s;cursor:pointer;}
+.tab-btn.active{background:rgba(56,189,248,.12);border-color:rgba(56,189,248,.35);color:#7dd3fc;}
+.vista-doc{display:none;}
+.vista-doc.ativa{display:block;}
+
+.item-row{display:grid;grid-template-columns:1fr auto auto auto;gap:.4rem;align-items:center;background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:.9rem;padding:.55rem .65rem;}
+.item-row input{background:#1e293b;border:1.5px solid #334155;border-radius:.5rem;color:#fff;font-size:12px;padding:.4rem .5rem;outline:none;}
+.item-row input:focus{border-color:#38bdf8;}
+.qtd-inp{width:48px;text-align:center;}
+.preco-inp{width:76px;text-align:right;}
+
+.btn-pill{padding:.7rem .9rem;border-radius:.9rem;font-weight:900;font-size:.66rem;text-transform:uppercase;letter-spacing:.04em;display:flex;align-items:center;justify-content:center;gap:.4rem;transition:all .15s;}
+.btn-primary{background:linear-gradient(135deg,#0ea5e9,#0369a1);color:#fff;}
+.btn-ghost{background:rgba(255,255,255,.04);border:1.5px solid var(--border);color:#cbd5e1;}
+.btn-ghost:active{background:rgba(255,255,255,.08);}
+
+.prod-pick{max-height:260px;overflow-y:auto;}
+.prod-pick-item{display:flex;align-items:center;justify-content:between;gap:.5rem;padding:.6rem .7rem;border-radius:.85rem;background:rgba(255,255,255,.02);border:1px solid var(--border);margin-bottom:.4rem;cursor:pointer;transition:all .12s;}
+.prod-pick-item:active{background:rgba(56,189,248,.08);}
+.prod-pick-item.sel{border-color:rgba(56,189,248,.4);background:rgba(56,189,248,.08);}
+
+/* ══ FOLHA DE DOCUMENTO (recibo/orçamento) — estilo comprovante ══ */
+#folhaDoc{background:#fff;color:#111;border-radius:1rem;padding:1.1rem 1rem;font-family:'Courier New',monospace;width:100%;max-width:360px;margin:0 auto;box-shadow:0 20px 50px rgba(0,0,0,.5);}
+#folhaDoc h2{font-size:.95rem;font-weight:900;text-align:center;text-transform:uppercase;margin:0 0 .1rem;}
+#folhaDoc .sub{text-align:center;font-size:.62rem;color:#444;margin-bottom:.5rem;}
+#folhaDoc .sep{border-top:1px dashed #999;margin:.5rem 0;}
+#folhaDoc .linha{display:flex;justify-content:space-between;font-size:.68rem;margin:.15rem 0;}
+#folhaDoc .item-linha{font-size:.68rem;margin:.28rem 0;}
+#folhaDoc .item-linha .nomeqtd{display:flex;justify-content:space-between;}
+#folhaDoc .total{font-size:.9rem;font-weight:900;}
+#folhaDoc .tag{display:inline-block;font-size:.55rem;font-weight:900;text-transform:uppercase;letter-spacing:.06em;background:#111;color:#fff;padding:.15rem .5rem;border-radius:.3rem;}
+
+/* ══ ENCARTE — cartaz vertical estilo social ══ */
+#folhaEncarte{width:100%;max-width:360px;aspect-ratio:4/5;margin:0 auto;border-radius:1.3rem;overflow:hidden;position:relative;box-shadow:0 24px 60px rgba(0,0,0,.55);display:flex;flex-direction:column;}
+#folhaEncarte .enc-head{padding:1.1rem 1rem .6rem;}
+#folhaEncarte .enc-titulo{font-weight:900;font-size:1.35rem;line-height:1.05;text-transform:uppercase;letter-spacing:-.01em;}
+#folhaEncarte .enc-sub{font-weight:700;font-size:.7rem;opacity:.85;margin-top:.15rem;}
+#folhaEncarte .enc-lista{flex:1;padding:0 1rem;display:flex;flex-direction:column;gap:.4rem;overflow:hidden;}
+#folhaEncarte .enc-prod{background:rgba(255,255,255,.14);backdrop-filter:blur(2px);border-radius:.75rem;padding:.45rem .65rem;display:flex;justify-content:space-between;align-items:center;}
+#folhaEncarte .enc-prod .nome{font-weight:800;font-size:.72rem;}
+#folhaEncarte .enc-prod .preco{font-weight:900;font-size:.85rem;white-space:nowrap;}
+#folhaEncarte .enc-rodape{padding:.7rem 1rem 1rem;font-size:.6rem;font-weight:700;text-align:center;}
+
+.tema-swatch{width:26px;height:26px;border-radius:9999px;border:2px solid rgba(255,255,255,.25);cursor:pointer;}
+.tema-swatch.sel{border-color:#fff;box-shadow:0 0 0 2px #38bdf8;}
+
+@media print{
+  body *{visibility:hidden;}
+  #areaImpressao,#areaImpressao *{visibility:visible;}
+  #areaImpressao{position:absolute;top:0;left:0;width:100%;}
+}
+</style>
+</head>
+<body>
+
+<!-- LOCK -->
+<div id="lock">
+  <div style="background:rgba(13,17,23,.95);border:1px solid rgba(255,255,255,.08);border-radius:2.5rem;padding:2.5rem;width:100%;max-width:360px;margin:0 1rem;text-align:center;box-shadow:0 40px 80px rgba(0,0,0,.8);">
+    <div class="text-5xl mb-4">🧾</div>
+    <h1 class="text-2xl font-black mb-1 uppercase tracking-tight">CH <span class="text-sky-400">GELADAS</span></h1>
+    <p class="text-[9px] text-slate-600 font-bold uppercase tracking-widest mb-8">Recibos · Orçamentos · Encartes</p>
+    <input type="text" id="loginNome" autocomplete="username" class="w-full bg-slate-950 border-2 border-slate-800 focus:border-sky-500 p-4 rounded-2xl text-left outline-none text-white transition-all font-sans mb-3" placeholder="👤 Usuário">
+    <input type="password" id="loginSenha" autocomplete="current-password" class="w-full bg-slate-950 border-2 border-slate-800 focus:border-sky-500 p-4 rounded-2xl text-left outline-none text-white transition-all font-sans mb-4" placeholder="🔒 Senha">
+    <div id="lockError" class="hidden text-[10px] text-red-400 font-bold mb-3"></div>
+    <button onclick="doLogin()" class="w-full bg-sky-700 hover:bg-sky-600 py-4 rounded-xl font-black uppercase text-xs tracking-widest transition-all">
+      <i class="fas fa-unlock-alt mr-2"></i>Entrar
+    </button>
+    <div class="mt-6"><a href="index.html" class="text-[9px] text-slate-700 hover:text-slate-500 font-bold uppercase tracking-widest transition-colors">← Hub Principal</a></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" class="hidden flex flex-col min-h-screen">
+
+  <header class="sticky top-0 z-40 px-4 py-3 flex justify-between items-center" style="background:rgba(6,8,16,.96);border-bottom:1px solid rgba(255,255,255,.04);">
+    <div class="flex items-center gap-3">
+      <span class="text-2xl">🧾</span>
+      <div>
+        <h1 class="text-[10px] font-black uppercase tracking-widest text-sky-400">Documentos</h1>
+        <p id="clock" class="text-[9px] font-mono text-slate-600 mt-0.5">00:00:00</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <span id="roleTag" class="hidden text-[8px] font-black uppercase px-2 py-1 rounded-lg bg-white/5 text-slate-400"></span>
+      <button onclick="abrirConfigLoja()" class="w-8 h-8 rounded-lg bg-slate-900 border border-white/5 flex items-center justify-center text-slate-500 hover:text-sky-400 transition-all">
+        <i class="fas fa-store text-xs"></i>
+      </button>
+      <button onclick="logout()" class="w-8 h-8 rounded-lg bg-slate-900 border border-white/5 flex items-center justify-center text-slate-500 hover:text-red-400 transition-all">
+        <i class="fas fa-power-off text-xs"></i>
+      </button>
+    </div>
+  </header>
+
+  <div class="tab-bar">
+    <div class="tab-btn active" data-tab="recibo" onclick="mudarAba('recibo')"><i class="fas fa-receipt mr-1"></i>Recibo</div>
+    <div class="tab-btn" data-tab="orcamento" onclick="mudarAba('orcamento')"><i class="fas fa-file-invoice mr-1"></i>Orçamento</div>
+    <div class="tab-btn" data-tab="encarte" onclick="mudarAba('encarte')"><i class="fas fa-bullhorn mr-1"></i>Encarte</div>
+  </div>
+
+  <div class="flex-1 p-3 pb-28">
+
+    <!-- ══════════ ABA RECIBO ══════════ -->
+    <div id="vistaRecibo" class="vista-doc ativa">
+      <div class="space-y-3">
+        <div>
+          <label class="label">Cliente (opcional)</label>
+          <input id="recCliente" class="inp" placeholder="Nome do cliente">
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="label mb-0">Itens</label>
+            <button onclick="abrirBuscaProduto('recibo')" class="btn-pill btn-ghost" style="padding:.4rem .7rem;"><i class="fas fa-plus"></i>Produto</button>
+          </div>
+          <div id="recItensLista" class="space-y-2"></div>
+          <button onclick="_addItemManual('recibo')" class="w-full mt-2 text-[10px] font-bold text-slate-500 hover:text-sky-400 transition-all"><i class="fas fa-pen mr-1"></i>+ item avulso (digitar manual)</button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="label">Desconto R$</label>
+            <input id="recDesconto" type="number" step="0.01" min="0" class="inp" placeholder="0,00" oninput="renderRecibo()">
+          </div>
+          <div>
+            <label class="label">Forma de Pgto</label>
+            <select id="recFormaPgto" class="inp" onchange="renderRecibo()">
+              <option>Dinheiro</option><option>Pix</option><option>Cartão Débito</option><option>Cartão Crédito</option><option>Fiado</option><option>Outro</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="label">Observação (opcional)</label>
+          <input id="recObs" class="inp" placeholder="Ex: Entrega, garantia..." oninput="renderRecibo()">
+        </div>
+      </div>
+
+      <div class="mt-5" id="areaImpressaoWrapRecibo">
+        <div id="areaImpressao">
+          <div id="folhaDoc"></div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2 mt-4">
+        <button class="btn-pill btn-primary" onclick="imprimirDocAtivo()"><i class="fas fa-print"></i>Imprimir</button>
+        <button class="btn-pill btn-ghost" onclick="baixarPdfDocAtivo()"><i class="fas fa-file-pdf"></i>Baixar PDF</button>
+        <button class="btn-pill btn-ghost" style="grid-column:span 2;color:#25D366;" onclick="enviarWhatsappRecibo()"><i class="fab fa-whatsapp"></i>Enviar no WhatsApp</button>
+      </div>
+    </div>
+
+    <!-- ══════════ ABA ORÇAMENTO ══════════ -->
+    <div id="vistaOrcamento" class="vista-doc">
+      <div class="space-y-3">
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="label">Cliente</label>
+            <input id="orcCliente" class="inp" placeholder="Nome do cliente" oninput="renderOrcamento()">
+          </div>
+          <div>
+            <label class="label">WhatsApp (opcional)</label>
+            <input id="orcTelefone" class="inp" placeholder="(00) 00000-0000">
+          </div>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="label mb-0">Itens</label>
+            <button onclick="abrirBuscaProduto('orcamento')" class="btn-pill btn-ghost" style="padding:.4rem .7rem;"><i class="fas fa-plus"></i>Produto</button>
+          </div>
+          <div id="orcItensLista" class="space-y-2"></div>
+          <button onclick="_addItemManual('orcamento')" class="w-full mt-2 text-[10px] font-bold text-slate-500 hover:text-sky-400 transition-all"><i class="fas fa-pen mr-1"></i>+ item avulso (digitar manual)</button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="label">Desconto R$</label>
+            <input id="orcDesconto" type="number" step="0.01" min="0" class="inp" placeholder="0,00" oninput="renderOrcamento()">
+          </div>
+          <div>
+            <label class="label">Validade (dias)</label>
+            <input id="orcValidadeDias" type="number" min="1" class="inp" value="7" oninput="renderOrcamento()">
+          </div>
+        </div>
+
+        <div>
+          <label class="label">Condições / Observações</label>
+          <input id="orcCondicoes" class="inp" placeholder="Ex: Pagamento na entrega, frete não incluso..." oninput="renderOrcamento()">
+        </div>
+      </div>
+
+      <div class="mt-5" id="areaImpressaoWrapOrcamento">
+        <div id="areaImpressaoOrc">
+          <div id="folhaDocOrc"></div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2 mt-4">
+        <button class="btn-pill btn-primary" onclick="imprimirDocAtivo()"><i class="fas fa-print"></i>Imprimir</button>
+        <button class="btn-pill btn-ghost" onclick="baixarPdfDocAtivo()"><i class="fas fa-file-pdf"></i>Baixar PDF</button>
+        <button class="btn-pill btn-ghost" style="grid-column:span 2;color:#25D366;" onclick="enviarWhatsappOrcamento()"><i class="fab fa-whatsapp"></i>Enviar no WhatsApp</button>
+      </div>
+    </div>
+
+    <!-- ══════════ ABA ENCARTE ══════════ -->
+    <div id="vistaEncarte" class="vista-doc">
+      <div class="space-y-3">
+        <div>
+          <label class="label">Título do encarte</label>
+          <input id="encTitulo" class="inp" placeholder="Ex: PROMOÇÃO DA SEMANA" oninput="renderEncarte()">
+        </div>
+        <div>
+          <label class="label">Chamada / subtítulo</label>
+          <input id="encSubtitulo" class="inp" placeholder="Ex: Só até domingo, aproveite!" oninput="renderEncarte()">
+        </div>
+
+        <div>
+          <label class="label mb-2">Tema de cor</label>
+          <div class="flex gap-2" id="temaSwatches"></div>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="label mb-0">Produtos em destaque</label>
+            <button onclick="abrirBuscaProduto('encarte')" class="btn-pill btn-ghost" style="padding:.4rem .7rem;"><i class="fas fa-plus"></i>Produto</button>
+          </div>
+          <div id="encItensLista" class="space-y-2"></div>
+        </div>
+
+        <div>
+          <label class="label">Rodapé (endereço / validade da promoção)</label>
+          <input id="encRodape" class="inp" placeholder="Ex: Válido até 30/08 · Rua X, 123" oninput="renderEncarte()">
+        </div>
+      </div>
+
+      <div class="mt-5">
+        <div id="folhaEncarte"></div>
+      </div>
+
+      <div class="grid grid-cols-1 gap-2 mt-4">
+        <button class="btn-pill btn-primary" onclick="baixarImagemEncarte()"><i class="fas fa-image"></i>Baixar Imagem</button>
+        <button class="btn-pill btn-ghost" style="color:#25D366;" onclick="compartilharEncarteWhatsapp()"><i class="fab fa-whatsapp"></i>Compartilhar no WhatsApp</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- MODAL BUSCA PRODUTO -->
+<div class="modal" id="modalBuscaProduto">
+  <div class="modal-box" style="max-width:420px;padding:1.25rem;">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-xs font-black uppercase tracking-widest text-sky-400">Selecionar produto</h3>
+      <button onclick="UIService.closeModal('modalBuscaProduto')" class="w-7 h-7 rounded-lg bg-white/5 text-slate-400"><i class="fas fa-times text-xs"></i></button>
+    </div>
+    <input id="buscaProdInput" class="inp mb-3" placeholder="🔍 Buscar produto no estoque..." oninput="_renderBuscaProduto()">
+    <div id="buscaProdLista" class="prod-pick"></div>
+  </div>
+</div>
+
+<!-- MODAL CONFIG LOJA -->
+<div class="modal" id="modalConfigLoja">
+  <div class="modal-box" style="max-width:400px;padding:1.5rem;">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-xs font-black uppercase tracking-widest text-sky-400">Dados da loja p/ documentos</h3>
+      <button onclick="UIService.closeModal('modalConfigLoja')" class="w-7 h-7 rounded-lg bg-white/5 text-slate-400"><i class="fas fa-times text-xs"></i></button>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <label class="label">Nome da loja</label>
+        <input id="cfgLojaNome" class="inp" placeholder="CH Geladas">
+      </div>
+      <div>
+        <label class="label">Endereço</label>
+        <input id="cfgLojaEndereco" class="inp" placeholder="Rua, número, bairro">
+      </div>
+      <div>
+        <label class="label">WhatsApp / Telefone</label>
+        <input id="cfgLojaWhats" class="inp" placeholder="(00) 00000-0000">
+      </div>
+      <div>
+        <label class="label">Instagram (opcional)</label>
+        <input id="cfgLojaInsta" class="inp" placeholder="@chgeladas">
+      </div>
+    </div>
+    <button onclick="salvarConfigLoja()" class="btn-pill btn-primary w-full mt-5"><i class="fas fa-check"></i>Salvar</button>
+  </div>
+</div>
+
+<div id="toast" style="min-width:200px;position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%) translateY(2rem);opacity:0;pointer-events:none;z-index:200;transition:opacity .2s,transform .2s;background:rgba(13,17,23,.98);border:1px solid rgba(255,255,255,.09);border-radius:1rem;padding:.75rem 1rem;display:flex;align-items:center;gap:.6rem;box-shadow:0 16px 32px rgba(0,0,0,.5);">
+  <div id="toastIcon" style="width:22px;height:22px;border-radius:9999px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;"></div>
+  <div><p id="toastMsg" class="text-[11px] font-bold text-white"></p><p id="toastSub" class="text-[9px] text-slate-400"></p></div>
+</div>
+
+<script src="core.js"></script>
+  <script src="./services/permissoesService.js"></script>
+  <script src="./services/userService.js"></script>
+  <script src="./services/syncService.js"></script>
+  <script src="./services/auditService.js"></script>
+  <script src="./services/syncMonitor.js"></script>
+  <script src="./services/backupService.js"></script>
+  <script src="./services/estoqueService.js"></script>
+<script>
+/* ══════════════════════════════════════════════════════════════
+   documentos.html — Recibo / Orçamento / Encarte
+   Não introduz coleções novas: usa EstoqueService (leitura) e
+   Store.mutateConfig() para persistir dados extras da loja
+   (endereco/instagram) no mesmo doc `config` já existente.
+══════════════════════════════════════════════════════════════ */
+
+const TEMAS = [
+  { id:'laranja', bg:'linear-gradient(155deg,#f97316,#ea580c 55%,#7c2d12)', txt:'#fff' },
+  { id:'azul',    bg:'linear-gradient(155deg,#0ea5e9,#0369a1 55%,#0c2340)', txt:'#fff' },
+  { id:'verde',   bg:'linear-gradient(155deg,#22c55e,#15803d 55%,#052e12)', txt:'#fff' },
+  { id:'rosa',    bg:'linear-gradient(155deg,#ec4899,#be185d 55%,#4a0a29)', txt:'#fff' },
+  { id:'roxo',    bg:'linear-gradient(155deg,#8b5cf6,#5b21b6 55%,#1e0a4a)', txt:'#fff' },
+];
+
+let _abaAtiva = 'recibo';
+let _recItens = [];
+let _orcItens = [];
+let _encItens = [];
+let _encTema  = 'laranja';
+let _buscaAlvo = null; // 'recibo' | 'orcamento' | 'encarte'
+
+/* ══ TABS ══ */
+function mudarAba(tab) {
+  _abaAtiva = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.getElementById('vistaRecibo').classList.toggle('ativa', tab === 'recibo');
+  document.getElementById('vistaOrcamento').classList.toggle('ativa', tab === 'orcamento');
+  document.getElementById('vistaEncarte').classList.toggle('ativa', tab === 'encarte');
+}
+
+/* ══ CONFIG DA LOJA (persistida no mesmo doc `config`) ══ */
+function _cfgDocumentos() {
+  const cfg = Store.getConfig() || {};
+  return cfg.documentos || {};
+}
+function abrirConfigLoja() {
+  const cfg = Store.getConfig() || {};
+  const d   = cfg.documentos || {};
+  document.getElementById('cfgLojaNome').value     = d.nome     || cfg.nome || '';
+  document.getElementById('cfgLojaEndereco').value = d.endereco || '';
+  document.getElementById('cfgLojaWhats').value    = d.whatsapp || cfg.whatsapp || '';
+  document.getElementById('cfgLojaInsta').value    = d.instagram|| '';
+  UIService.openModal('modalConfigLoja');
+}
+function salvarConfigLoja() {
+  const nome     = document.getElementById('cfgLojaNome').value.trim();
+  const endereco = document.getElementById('cfgLojaEndereco').value.trim();
+  const whatsapp = document.getElementById('cfgLojaWhats').value.trim();
+  const instagram= document.getElementById('cfgLojaInsta').value.trim();
+  Store.mutateConfig(cfg => { cfg.documentos = { nome, endereco, whatsapp, instagram }; });
+  UIService.closeModal('modalConfigLoja');
+  UIService.showToast('Dados salvos', 'Usados nos próximos documentos', 'success');
+  renderRecibo(); renderOrcamento(); renderEncarte();
+}
+
+/* ══ CONTADOR SEQUENCIAL (nº do recibo/orçamento) ══ */
+function _proximoNumero(tipo) {
+  const cfg = Store.getConfig() || {};
+  const cont = cfg.docCounters || {};
+  const n = (cont[tipo] || 0) + 1;
+  Store.mutateConfig(c => { c.docCounters = { ...(c.docCounters||{}), [tipo]: n }; });
+  return n;
+}
+
+/* ══ BUSCA DE PRODUTO (estoque) ══ */
+function abrirBuscaProduto(alvo) {
+  _buscaAlvo = alvo;
+  document.getElementById('buscaProdInput').value = '';
+  _renderBuscaProduto();
+  UIService.openModal('modalBuscaProduto');
+}
+function _renderBuscaProduto() {
+  const termo = (document.getElementById('buscaProdInput').value || '').toLowerCase();
+  const prods = (window.CH?.EstoqueService?.getProdutos?.() || [])
+    .filter(p => p.ativo !== false)
+    .filter(p => !termo || p.nome.toLowerCase().includes(termo));
+  const lista = document.getElementById('buscaProdLista');
+  if (!prods.length) { lista.innerHTML = `<p class="text-[10px] text-slate-500 text-center py-6">Nenhum produto encontrado</p>`; return; }
+  lista.innerHTML = prods.map(p => `
+    <div class="prod-pick-item" onclick="_selecionarProduto('${p.id}')">
+      <div style="flex:1;min-width:0;">
+        <p class="text-[11px] font-bold text-white truncate">${p.nome}</p>
+        <p class="text-[9px] text-slate-500">${Utils.formatCurrency(p.precoUn)} · estoque ${p.estoqueAtual ?? 0}</p>
+      </div>
+      <i class="fas fa-plus text-sky-400 text-xs"></i>
+    </div>`).join('');
+}
+function _selecionarProduto(id) {
+  const p = window.CH?.EstoqueService?.getProduto?.(id);
+  if (!p) return;
+  const item = { id: Utils.generateId(), nome: p.nome, qtd: 1, preco: Number(p.precoUn || 0), produtoId: p.id };
+  if (_buscaAlvo === 'recibo')    { _recItens.push(item); renderRecibo(); }
+  if (_buscaAlvo === 'orcamento') { _orcItens.push(item); renderOrcamento(); }
+  if (_buscaAlvo === 'encarte')   { _encItens.push(item); renderEncarte(); }
+  UIService.closeModal('modalBuscaProduto');
+}
+function _addItemManual(alvo) {
+  const item = { id: Utils.generateId(), nome: 'Item', qtd: 1, preco: 0, produtoId: null };
+  if (alvo === 'recibo')    { _recItens.push(item); renderRecibo(); }
+  if (alvo === 'orcamento') { _orcItens.push(item); renderOrcamento(); }
+}
+function _removerItem(alvo, id) {
+  if (alvo === 'recibo')    { _recItens = _recItens.filter(i => i.id !== id); renderRecibo(); }
+  if (alvo === 'orcamento') { _orcItens = _orcItens.filter(i => i.id !== id); renderOrcamento(); }
+  if (alvo === 'encarte')   { _encItens = _encItens.filter(i => i.id !== id); renderEncarte(); }
+}
+function _atualizarItem(alvo, id, campo, valor) {
+  const arr = alvo === 'recibo' ? _recItens : (alvo === 'orcamento' ? _orcItens : _encItens);
+  const it = arr.find(i => i.id === id);
+  if (!it) return;
+  it[campo] = (campo === 'qtd' || campo === 'preco') ? Number(valor) || 0 : valor;
+  if (alvo === 'recibo') renderRecibo();
+  if (alvo === 'orcamento') renderOrcamento();
+  if (alvo === 'encarte') renderEncarte();
+}
+
+function _renderListaItens(alvo, containerId, itens, comQtd = true) {
+  const el = document.getElementById(containerId);
+  if (!itens.length) { el.innerHTML = `<p class="text-[10px] text-slate-600 text-center py-3">Nenhum item adicionado</p>`; return; }
+  el.innerHTML = itens.map(i => `
+    <div class="item-row">
+      <input value="${(i.nome||'').replace(/"/g,'&quot;')}" oninput="_atualizarItem('${alvo}','${i.id}','nome',this.value)" placeholder="Descrição">
+      ${comQtd ? `<input type="number" min="1" class="qtd-inp" value="${i.qtd}" oninput="_atualizarItem('${alvo}','${i.id}','qtd',this.value)">` : ''}
+      <input type="number" step="0.01" min="0" class="preco-inp" value="${i.preco}" oninput="_atualizarItem('${alvo}','${i.id}','preco',this.value)">
+      <button onclick="_removerItem('${alvo}','${i.id}')" class="text-red-400 px-1"><i class="fas fa-trash text-[11px]"></i></button>
+    </div>`).join('');
+}
+
+/* ══ RECIBO ══ */
+function renderRecibo() {
+  _renderListaItens('recibo', 'recItensLista', _recItens, true);
+  const cliente  = document.getElementById('recCliente')?.value.trim();
+  const desconto = Number(document.getElementById('recDesconto')?.value || 0);
+  const forma    = document.getElementById('recFormaPgto')?.value || 'Dinheiro';
+  const obs      = document.getElementById('recObs')?.value.trim();
+  const cfgD     = _cfgDocumentos();
+  const cfg      = Store.getConfig() || {};
+  const nomeLoja = cfgD.nome || cfg.nome || 'CH Geladas';
+
+  const subtotal = _recItens.reduce((s,i) => s + (i.qtd * i.preco), 0);
+  const total    = Math.max(0, subtotal - desconto);
+
+  const html = `
+    <h2>${nomeLoja}</h2>
+    <p class="sub">${cfgD.endereco ? cfgD.endereco+' · ' : ''}${Utils.today()} ${Utils.nowTime()}</p>
+    <div class="sep"></div>
+    <p style="text-align:center;"><span class="tag">COMPROVANTE DE VENDA</span></p>
+    ${cliente ? `<p class="linha"><span>Cliente:</span><span>${cliente}</span></p>` : ''}
+    <div class="sep"></div>
+    ${_recItens.map(i => `
+      <div class="item-linha">
+        <div class="nomeqtd"><span>${i.nome} ×${i.qtd}</span><span>${Utils.formatCurrency(i.qtd*i.preco)}</span></div>
+      </div>`).join('') || '<p class="sub">Nenhum item</p>'}
+    <div class="sep"></div>
+    <p class="linha"><span>Subtotal</span><span>${Utils.formatCurrency(subtotal)}</span></p>
+    ${desconto > 0 ? `<p class="linha"><span>Desconto</span><span>-${Utils.formatCurrency(desconto)}</span></p>` : ''}
+    <p class="linha total"><span>TOTAL</span><span>${Utils.formatCurrency(total)}</span></p>
+    <p class="linha"><span>Pagamento</span><span>${forma}</span></p>
+    ${obs ? `<div class="sep"></div><p class="sub">${obs}</p>` : ''}
+    <div class="sep"></div>
+    <p class="sub" style="text-align:center;">Obrigado pela preferência!</p>`;
+  document.getElementById('folhaDoc').innerHTML = html;
+}
+
+function _gerarTextoRecibo() {
+  const cliente  = document.getElementById('recCliente')?.value.trim();
+  const desconto = Number(document.getElementById('recDesconto')?.value || 0);
+  const forma    = document.getElementById('recFormaPgto')?.value || 'Dinheiro';
+  const obs      = document.getElementById('recObs')?.value.trim();
+  const cfgD     = _cfgDocumentos();
+  const cfg      = Store.getConfig() || {};
+  const nomeLoja = cfgD.nome || cfg.nome || 'CH Geladas';
+  const subtotal = _recItens.reduce((s,i) => s + (i.qtd * i.preco), 0);
+  const total    = Math.max(0, subtotal - desconto);
+  const sep = '─'.repeat(28);
+  let txt = `*${nomeLoja}*\nCOMPROVANTE DE VENDA\n${sep}\n`;
+  if (cliente) txt += `Cliente: ${cliente}\n`;
+  txt += `Data: ${Utils.today()} ${Utils.nowTime()}\n${sep}\n`;
+  _recItens.forEach(i => { txt += `${i.nome} ×${i.qtd} — ${Utils.formatCurrency(i.qtd*i.preco)}\n`; });
+  txt += `${sep}\n`;
+  if (desconto > 0) txt += `Desconto: -${Utils.formatCurrency(desconto)}\n`;
+  txt += `*TOTAL: ${Utils.formatCurrency(total)}*\nPagamento: ${forma}\n`;
+  if (obs) txt += `${sep}\n${obs}\n`;
+  txt += `${sep}\nObrigado pela preferência!`;
+  return txt;
+}
+function enviarWhatsappRecibo() {
+  if (!_recItens.length) { UIService.showToast('Adicione ao menos 1 item','', 'warning'); return; }
+  const cfg = Store.getConfig() || {};
+  const num = (cfg.whatsapp || '').replace(/\D/g,'');
+  const txt = _gerarTextoRecibo();
+  if (num) Utils.openWhatsApp(num, txt);
+  else window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank');
+}
+
+/* ══ ORÇAMENTO ══ */
+function renderOrcamento() {
+  _renderListaItens('orcamento', 'orcItensLista', _orcItens, true);
+  const cliente   = document.getElementById('orcCliente')?.value.trim();
+  const desconto  = Number(document.getElementById('orcDesconto')?.value || 0);
+  const diasVal   = Number(document.getElementById('orcValidadeDias')?.value || 7);
+  const condicoes = document.getElementById('orcCondicoes')?.value.trim();
+  const cfgD      = _cfgDocumentos();
+  const cfg       = Store.getConfig() || {};
+  const nomeLoja  = cfgD.nome || cfg.nome || 'CH Geladas';
+
+  const subtotal = _orcItens.reduce((s,i) => s + (i.qtd * i.preco), 0);
+  const total    = Math.max(0, subtotal - desconto);
+  const validadeData = new Date(Date.now() + diasVal*86400000).toLocaleDateString('pt-BR');
+
+  const html = `
+    <h2>${nomeLoja}</h2>
+    <p class="sub">${cfgD.endereco ? cfgD.endereco+' · ' : ''}${Utils.today()}</p>
+    <div class="sep"></div>
+    <p style="text-align:center;"><span class="tag">ORÇAMENTO</span></p>
+    ${cliente ? `<p class="linha"><span>Cliente:</span><span>${cliente}</span></p>` : ''}
+    <div class="sep"></div>
+    ${_orcItens.map(i => `
+      <div class="item-linha">
+        <div class="nomeqtd"><span>${i.nome} ×${i.qtd}</span><span>${Utils.formatCurrency(i.qtd*i.preco)}</span></div>
+      </div>`).join('') || '<p class="sub">Nenhum item</p>'}
+    <div class="sep"></div>
+    <p class="linha"><span>Subtotal</span><span>${Utils.formatCurrency(subtotal)}</span></p>
+    ${desconto > 0 ? `<p class="linha"><span>Desconto</span><span>-${Utils.formatCurrency(desconto)}</span></p>` : ''}
+    <p class="linha total"><span>TOTAL</span><span>${Utils.formatCurrency(total)}</span></p>
+    <div class="sep"></div>
+    <p class="linha"><span>Válido até</span><span>${validadeData}</span></p>
+    ${condicoes ? `<p class="sub" style="margin-top:.4rem;">${condicoes}</p>` : ''}
+    <div class="sep"></div>
+    <p class="sub" style="text-align:center;">Orçamento sujeito à disponibilidade de estoque.</p>`;
+  document.getElementById('folhaDocOrc').innerHTML = html;
+}
+
+function _gerarTextoOrcamento() {
+  const cliente   = document.getElementById('orcCliente')?.value.trim();
+  const desconto  = Number(document.getElementById('orcDesconto')?.value || 0);
+  const diasVal   = Number(document.getElementById('orcValidadeDias')?.value || 7);
+  const condicoes = document.getElementById('orcCondicoes')?.value.trim();
+  const cfgD      = _cfgDocumentos();
+  const cfg       = Store.getConfig() || {};
+  const nomeLoja  = cfgD.nome || cfg.nome || 'CH Geladas';
+  const subtotal  = _orcItens.reduce((s,i) => s + (i.qtd * i.preco), 0);
+  const total     = Math.max(0, subtotal - desconto);
+  const validadeData = new Date(Date.now() + diasVal*86400000).toLocaleDateString('pt-BR');
+  const sep = '─'.repeat(28);
+  let txt = `*ORÇAMENTO — ${nomeLoja}*\n${sep}\n`;
+  if (cliente) txt += `Cliente: ${cliente}\n`;
+  txt += `Data: ${Utils.today()}\n${sep}\n`;
+  _orcItens.forEach(i => { txt += `${i.nome} ×${i.qtd} — ${Utils.formatCurrency(i.qtd*i.preco)}\n`; });
+  txt += `${sep}\n`;
+  if (desconto > 0) txt += `Desconto: -${Utils.formatCurrency(desconto)}\n`;
+  txt += `*TOTAL: ${Utils.formatCurrency(total)}*\nVálido até: ${validadeData}\n`;
+  if (condicoes) txt += `${sep}\n${condicoes}\n`;
+  return txt;
+}
+function enviarWhatsappOrcamento() {
+  if (!_orcItens.length) { UIService.showToast('Adicione ao menos 1 item','', 'warning'); return; }
+  const tel = (document.getElementById('orcTelefone')?.value || '').replace(/\D/g,'');
+  const txt = _gerarTextoOrcamento();
+  if (tel) Utils.openWhatsApp(tel, txt);
+  else window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank');
+}
+
+/* ══ IMPRIMIR / PDF (recibo e orçamento) ══ */
+function imprimirDocAtivo() {
+  const wrapId = _abaAtiva === 'orcamento' ? 'areaImpressaoWrapOrcamento' : 'areaImpressaoWrapRecibo';
+  const areaId = _abaAtiva === 'orcamento' ? 'areaImpressaoOrc' : 'areaImpressao';
+  // move a folha ativa para o elemento com id fixo #areaImpressao (usado pelo @media print)
+  const alvo = document.getElementById('areaImpressao');
+  const origem = document.getElementById(areaId);
+  if (_abaAtiva === 'orcamento') { alvo.innerHTML = origem.innerHTML; }
+  window.print();
+}
+async function baixarPdfDocAtivo() {
+  if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
+    UIService.showToast('Sem conexão', 'Não foi possível carregar o gerador de PDF', 'error'); return;
+  }
+  const folhaId = _abaAtiva === 'orcamento' ? 'folhaDocOrc' : 'folhaDoc';
+  const el = document.getElementById(folhaId);
+  const canvas = await html2canvas(el, { backgroundColor: '#ffffff', scale: 2 });
+  const { jsPDF } = window.jspdf;
+  const img = canvas.toDataURL('image/png');
+  const pdf = new jsPDF({ unit:'mm', format:[80, 80 + (canvas.height*80/canvas.width)] });
+  pdf.addImage(img, 'PNG', 0, 0, 80, canvas.height*80/canvas.width);
+  const tipo = _abaAtiva === 'orcamento' ? 'orcamento' : 'recibo';
+  pdf.save(`${tipo}_${Utils.todayISO()}.pdf`);
+}
+
+/* ══ ENCARTE ══ */
+function _renderTemas() {
+  const el = document.getElementById('temaSwatches');
+  el.innerHTML = TEMAS.map(t => `
+    <div class="tema-swatch ${t.id===_encTema?'sel':''}" style="background:${t.bg}" onclick="_setTema('${t.id}')"></div>`).join('');
+}
+function _setTema(id) { _encTema = id; _renderTemas(); renderEncarte(); }
+
+function renderEncarte() {
+  // lista de itens selecionados (sem qtd, só nome+preço editável)
+  const el = document.getElementById('encItensLista');
+  if (!_encItens.length) el.innerHTML = `<p class="text-[10px] text-slate-600 text-center py-3">Adicione produtos em destaque</p>`;
+  else el.innerHTML = _encItens.map(i => `
+    <div class="item-row" style="grid-template-columns:1fr auto auto;">
+      <input value="${(i.nome||'').replace(/"/g,'&quot;')}" oninput="_atualizarItem('encarte','${i.id}','nome',this.value)" placeholder="Produto">
+      <input type="number" step="0.01" min="0" class="preco-inp" value="${i.preco}" oninput="_atualizarItem('encarte','${i.id}','preco',this.value)">
+      <button onclick="_removerItem('encarte','${i.id}')" class="text-red-400 px-1"><i class="fas fa-trash text-[11px]"></i></button>
+    </div>`).join('');
+
+  const titulo   = document.getElementById('encTitulo')?.value.trim() || 'PROMOÇÃO';
+  const subtitulo= document.getElementById('encSubtitulo')?.value.trim() || '';
+  const rodape   = document.getElementById('encRodape')?.value.trim();
+  const cfgD     = _cfgDocumentos();
+  const cfg      = Store.getConfig() || {};
+  const tema     = TEMAS.find(t => t.id === _encTema) || TEMAS[0];
+  const rodapeFinal = rodape || [cfgD.whatsapp||cfg.whatsapp, cfgD.instagram].filter(Boolean).join(' · ');
+
+  const folha = document.getElementById('folhaEncarte');
+  folha.style.background = tema.bg;
+  folha.style.color = tema.txt;
+  folha.innerHTML = `
+    <div class="enc-head">
+      <div class="enc-titulo">${titulo}</div>
+      ${subtitulo ? `<div class="enc-sub">${subtitulo}</div>` : ''}
+    </div>
+    <div class="enc-lista">
+      ${_encItens.map(i => `
+        <div class="enc-prod"><span class="nome">${i.nome}</span><span class="preco">${Utils.formatCurrency(i.preco)}</span></div>`).join('') || `<p style="opacity:.7;font-size:.7rem;text-align:center;margin-top:1rem;">Adicione produtos ao encarte</p>`}
+    </div>
+    <div class="enc-rodape">${rodapeFinal || (cfgD.nome||cfg.nome||'CH Geladas')}</div>`;
+}
+
+async function baixarImagemEncarte() {
+  if (typeof html2canvas === 'undefined') { UIService.showToast('Sem conexão', 'Não foi possível carregar o gerador de imagem', 'error'); return; }
+  const el = document.getElementById('folhaEncarte');
+  const canvas = await html2canvas(el, { scale: 3, useCORS: true });
+  const url = canvas.toDataURL('image/png');
+  const a = Object.assign(document.createElement('a'), { href: url, download: `encarte_${Utils.todayISO()}.png` });
+  document.body.appendChild(a); a.click(); a.remove();
+}
+async function compartilharEncarteWhatsapp() {
+  if (typeof html2canvas === 'undefined') { UIService.showToast('Sem conexão', 'Não foi possível carregar o gerador de imagem', 'error'); return; }
+  const el = document.getElementById('folhaEncarte');
+  const canvas = await html2canvas(el, { scale: 3, useCORS: true });
+  canvas.toBlob(async (blob) => {
+    const file = new File([blob], `encarte_${Utils.todayISO()}.png`, { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: 'Encarte' }); return; } catch(e) { /* usuário cancelou */ }
+    }
+    // fallback: baixa a imagem e abre o WhatsApp Web pra anexar manualmente
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), { href: url, download: `encarte_${Utils.todayISO()}.png` });
+    document.body.appendChild(a); a.click(); a.remove();
+    UIService.showToast('Imagem baixada', 'Anexe no WhatsApp manualmente', 'info');
+    window.open('https://wa.me/', '_blank');
+  }, 'image/png');
+}
+
+/* ══ INIT ══ */
+function init() {
+  UIService.startClock('clock');
+  _renderTemas();
+  renderRecibo();
+  renderOrcamento();
+  renderEncarte();
+  EventBus.on('store:updated', () => { /* estoque pode mudar preços entre seleções — não força re-render dos itens já colocados no documento */ });
+}
+
+/* ══ LOGIN ══ */
+async function doLogin() {
+  const nome  = document.getElementById('loginNome')?.value.trim();
+  const senha = document.getElementById('loginSenha')?.value.trim();
+  const err   = document.getElementById('lockError');
+  err.textContent = '';
+  err.classList.add('hidden');
+  if (!nome || !senha) {
+    err.textContent = 'Preencha usuario e senha.';
+    err.classList.remove('hidden');
+    return;
+  }
+  let ok = false;
+  if (window.CH && window.CH.UserService) {
+    const user = await window.CH.UserService.login(nome, senha);
+    ok = !!user;
+  } else {
+    ok = await AuthService.login(senha);
+  }
+  if (ok) {
+    document.getElementById('lock').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    const _r = AuthService.getRole();
+    const rt = document.getElementById('roleTag');
+    if (rt) {
+      const _pi = window.CH && window.CH.PermissoesService && window.CH.PermissoesService.getPerfil && window.CH.PermissoesService.getPerfil(_r);
+      rt.textContent = (_pi && _pi.label) || _r || 'PDV';
+      rt.classList.remove('hidden');
+    }
+    init();
+  } else {
+    err.textContent = 'Usuario ou senha incorretos.';
+    err.classList.remove('hidden');
+    document.getElementById('loginSenha').value = '';
+    document.getElementById('loginSenha').focus();
+  }
+}
+document.getElementById('loginSenha').addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(); });
+document.getElementById('loginNome').addEventListener('keydown',  function(e) { if (e.key === 'Enter') document.getElementById('loginSenha').focus(); });
+function logout() { if (!confirm('Encerrar sessão?')) return; AuthService.logout(); location.reload(); }
+
+window.addEventListener('DOMContentLoaded', () => {
+  if (!AuthService.isLogged()) { location.href = 'index.html'; return; }
+  document.getElementById('lock').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  const _role = AuthService.getRole();
+  const rt = document.getElementById('roleTag');
+  if (rt) {
+    const _info = window.CH?.PermissoesService?.getPerfil?.(_role);
+    rt.textContent = _info?.label || _role || 'PDV';
+    rt.classList.remove('hidden');
+  }
+  init();
+});
+</script>
+</body>
+</html>

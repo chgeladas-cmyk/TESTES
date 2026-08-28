@@ -240,6 +240,7 @@ body::before {
 .c-teal   { --accent: #14b8a6; }
 .c-amber  { --accent: #f59e0b; }
 .c-indigo { --accent: #6366f1; }
+.c-sky    { --accent: #0ea5e9; }
 
 .app-card::before { background: var(--accent, #3b82f6); }
 .app-card:hover   { border-color: color-mix(in srgb, var(--accent,#3b82f6) 30%, transparent); }
@@ -537,7 +538,7 @@ body.is-admin .valid-only { display: block; }
     </a>
 
     <!-- SAÍDAS -->
-    <a href="saidas.html" class="app-card c-red" data-modulo="saidas" style="animation-delay:.17s;display:none">
+    <a href="saidas.html" class="app-card c-red" data-modulo="financeiro" style="animation-delay:.17s;display:none">
       <div class="app-badge" id="badgeSaidas"></div>
       <div class="app-icon">💸</div>
       <div class="app-name">Saídas</div>
@@ -568,19 +569,14 @@ body.is-admin .valid-only { display: block; }
       <div class="app-desc">Clientes · Saldo · Receber</div>
     </a>
 
-    <!-- VALIDADE -->
-    <a href="validade.html" class="app-card c-red" data-modulo="validade" style="animation-delay:.34s;display:none">
-      <div class="app-badge" id="badgeValidade"></div>
-      <div class="app-icon">📅</div>
-      <div class="app-name">Validade</div>
-      <div class="app-desc">Lotes · Vencimentos · Alertas</div>
-    </a>
-
-    <!-- CONTAGEM -->
-    <a href="contagem.html" class="app-card c-green" data-modulo="contagem" style="animation-delay:.36s;display:none">
-      <div class="app-icon">🔢</div>
-      <div class="app-name">Contagem</div>
-      <div class="app-desc">Inventário · Conferência · Aprovação</div>
+    <!-- CÂMBIO -->
+    <a href="validade.html" class="app-card c-red" data-modulo="validade" style="animation-delay:.34s">
+      <div class="card-icon">📅</div>
+      <div class="card-body">
+        <p class="card-title">Validade</p>
+        <p class="card-sub">Lotes · Vencimentos · Alertas</p>
+      </div>
+      <i class="fas fa-chevron-right card-arrow"></i>
     </a>
 
     <a href="cambio.html" class="app-card c-amber" data-modulo="cambio" style="animation-delay:.33s">
@@ -601,6 +597,13 @@ body.is-admin .valid-only { display: block; }
       <div class="app-icon">🍽️</div>
       <div class="app-name">Cardápio</div>
       <div class="app-desc">Delivery · Pedidos online</div>
+    </a>
+
+    <!-- DOCUMENTOS: Recibo · Orçamento · Encarte -->
+    <a href="documentos.html" class="app-card c-sky" data-modulo="documentos" style="animation-delay:.44s">
+      <div class="app-icon">🧾</div>
+      <div class="app-name">Documentos</div>
+      <div class="app-desc">Recibo · Orçamento · Encarte</div>
     </a>
 
     <!-- APROVAÇÃO (controlador + validador + admin) -->
@@ -835,21 +838,11 @@ body.is-admin .valid-only { display: block; }
   <script src="./services/syncMonitor.js"></script>
   <script src="./services/backupService.js"></script>
   <script src="./services/userService.js"></script>
-
-  <!-- Repositories — camada de acesso a dados. Carregam ANTES dos services. -->
-  <script src="./repositories/VendaRepository.js"></script>
-  <script src="./repositories/EstoqueRepository.js"></script>
-  <script src="./repositories/FinanceiroRepository.js"></script>
-
   <script src="./services/estoqueService.js"></script>
   <script src="./services/financeiroService.js"></script>
   <!-- integrityService.js removido -->
-  <script src="./services/vendasService.js"></script>
+<script src="./services/vendasService.js"></script>
   <script src="./services/aprovacaoService.js"></script>
-  <!-- VendaMediator — carrega APÓS todos os services. Orquestra Venda→Estoque→Financeiro. -->
-  <script src="./services/vendaMediator.js"></script>
-  <!-- TransactionManager — carrega APÓS VendaMediator. Steps + compensação + histórico. -->
-  <script src="./application/TransactionManager.js"></script>
 
 <script>
 'use strict';
@@ -1625,27 +1618,6 @@ function _aplicarPermissoesHub() {
     if (mod === 'cambio') {
       const PODE_CAMBIO = ['adm','admin','gerente'];
       const ok = PODE_CAMBIO.includes(role) || (Perm && Perm.temAcesso(role,'cambio'));
-      card.style.display = ok ? '' : 'none';
-      return;
-    }
-    // saidas: admin/gerente por padrão, ou perfil com acesso ao módulo
-    if (mod === 'saidas') {
-      const PODE_SAIDAS = ['adm','admin','gerente'];
-      const ok = PODE_SAIDAS.includes(role) || (Perm && Perm.temAcesso(role,'saidas'));
-      card.style.display = ok ? '' : 'none';
-      return;
-    }
-    // contagem: admin/gerente/operador por padrão, ou perfil com acesso ao módulo
-    if (mod === 'contagem') {
-      const PODE_CONTAGEM = ['adm','admin','gerente','operador'];
-      const ok = PODE_CONTAGEM.includes(role) || (Perm && Perm.temAcesso(role,'contagem'));
-      card.style.display = ok ? '' : 'none';
-      return;
-    }
-    // validade: admin/gerente/operador por padrão, ou perfil com acesso ao módulo
-    if (mod === 'validade') {
-      const PODE_VALIDADE = ['adm','admin','gerente','operador'];
-      const ok = PODE_VALIDADE.includes(role) || (Perm && Perm.temAcesso(role,'validade'));
       card.style.display = ok ? '' : 'none';
       return;
     }
